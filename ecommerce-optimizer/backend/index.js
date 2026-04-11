@@ -20,13 +20,18 @@ const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000')
     .map((origin) => origin.trim())
     .filter(Boolean);
 
-const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 10,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { error: 'Too many authentication attempts. Try again later.' },
-});
+function createAuthLimiter() {
+    return rateLimit({
+        windowMs: 15 * 60 * 1000,
+        max: 10,
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: { error: 'Too many authentication attempts. Try again later.' },
+    });
+}
+
+const loginLimiter = createAuthLimiter();
+const signupLimiter = createAuthLimiter();
 
 app.use(helmet());
 app.use(express.json({ limit: '100kb' }));
@@ -40,9 +45,9 @@ app.use(cors({
 }));
 app.locals.prisma = prisma;
 
-app.use('/api/users/login', authLimiter);
+app.use('/api/users/login', loginLimiter);
 app.use('/api/users', (req, res, next) => {
-    if (req.method === 'POST') return authLimiter(req, res, next);
+    if (req.method === 'POST' && req.path === '/') return signupLimiter(req, res, next);
     return next();
 });
 
@@ -51,31 +56,40 @@ async function ensureDefaultAdmin() {
     const defaultPassword = process.env.ADMIN_DEFAULT_PASSWORD || 'Admin@12345';
     const forceReset = (process.env.FORCE_ADMIN_RESET_ON_STARTUP || 'true').toLowerCase() === 'true';
 
-    const hashedPassword = await bcrypt.hash(defaultPassword, 10);
-    const existingAdmin = await prisma.user.findUnique({ where: { email: adminEmail } });
-
-    if (!existingAdmin) {
-        await prisma.user.create({
-            data: {
-                name: 'System Admin',
-                email: adminEmail,
-                password: hashedPassword,
-                role: 'ADMIN',
-            },
-        });
-        console.log(`[security] Created default admin user: ${adminEmail}`);
+    if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.trim()) {
+        console.warn('[security] DATABASE_URL is not set; skipping default admin bootstrap.');
         return;
     }
 
-    if (forceReset) {
-        await prisma.user.update({
-            where: { email: adminEmail },
-            data: {
-                password: hashedPassword,
-                role: 'ADMIN',
-            },
-        });
-        console.log(`[security] Reset default admin password for: ${adminEmail}`);
+    const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+    try {
+        const existingAdmin = await prisma.user.findUnique({ where: { email: adminEmail } });
+
+        if (!existingAdmin) {
+            await prisma.user.create({
+                data: {
+                    name: 'System Admin',
+                    email: adminEmail,
+                    password: hashedPassword,
+                    role: 'ADMIN',
+                },
+            });
+            console.log(`[security] Created default admin user: ${adminEmail}`);
+            return;
+        }
+
+        if (forceReset) {
+            await prisma.user.update({
+                where: { email: adminEmail },
+                data: {
+                    password: hashedPassword,
+                    role: 'ADMIN',
+                },
+            });
+            console.log(`[security] Reset default admin password for: ${adminEmail}`);
+        }
+    } catch (err) {
+        console.warn(`[security] Skipping default admin bootstrap: ${err.message}`);
     }
 }
 
@@ -125,7 +139,7 @@ async function ensureAiServiceReady() {
     const aiUrl = process.env.AI_SERVICE_URL || 'http://127.0.0.1:8000/predict';
     const strictMode = (process.env.AI_AUTOSTART_STRICT || 'false').toLowerCase() === 'true';
     const startupTimeoutMs = Number.parseInt(process.env.AI_AUTOSTART_TIMEOUT_MS || '12000', 10);
-    const timeoutMs = Number.isNaN(startupTimeoutMs) ? 12000 : startupTimeoutMs;
+    const timeoutMs = Number.isNaN(startupTimeoutMs) ? 30000 : Math.max(startupTimeoutMs, 30000);
 
     let parsed;
     try {
@@ -269,14 +283,15 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
-Promise.all([ensureDefaultAdmin(), ensureAiServiceReady()])
-    .then(() => {
-        const server = app.listen(PORT, () => {
-            console.log(`Server is running on http://localhost:${PORT}`);
-        });
-        setupShutdownHooks(server);
-    })
-    .catch((err) => {
-        console.error('[startup] Failed to initialize server:', err);
-        process.exit(1);
+const server = app.listen(PORT, () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
+});
+setupShutdownHooks(server);
+
+Promise.allSettled([ensureDefaultAdmin(), ensureAiServiceReady()]).then((results) => {
+    results.forEach((result) => {
+        if (result.status === 'rejected') {
+            console.warn('[startup] Non-fatal startup task failed:', result.reason);
+        }
     });
+});
