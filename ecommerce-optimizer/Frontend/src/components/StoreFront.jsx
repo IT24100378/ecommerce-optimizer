@@ -4,6 +4,9 @@ import ProductPage from './ProductPage';
 
 const API = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
 const NAVBAR_HEIGHT = 88;
+const FEATURED_VISIBLE_COUNT = 5;
+const FEATURED_CYCLE_MS = 3000;
+const FEATURED_ANIMATION_MS = 520;
 
 // ─── Utility ────────────────────────────────────────────────────────────────
 function formatPrice(n) {
@@ -230,7 +233,7 @@ function HeroBanner({ promotions = [] }) {
     },
     {
       title: 'Premium Laptops',
-      subtitle: 'Power meets portability – find the perfect laptop for work & play',
+      subtitle: 'Power meets portability - find the perfect laptop for work & play',
       badge: 'BEST SELLERS',
       gradient: 'from-gray-900 via-slate-800 to-gray-900',
       accent: 'text-emerald-400',
@@ -258,7 +261,12 @@ function HeroBanner({ promotions = [] }) {
     img: 'https://images.unsplash.com/photo-1556740738-b6a63e27c4df?w=600&q=80',
   }));
 
-  const slides = promoSlides.length > 0 ? promoSlides : defaultSlides;
+  const pinnedDefaultSlides = defaultSlides.filter((slide) => (
+    slide.title === 'Latest Smartphones' || slide.title === 'Premium Laptops'
+  ));
+  const slides = promoSlides.length > 0
+    ? [...promoSlides, ...pinnedDefaultSlides]
+    : defaultSlides;
   const [slideIndex, setSlideIndex] = useState(0);
 
   useEffect(() => {
@@ -281,28 +289,38 @@ function HeroBanner({ promotions = [] }) {
         <div className="absolute top-10 left-10 w-64 h-64 rounded-full bg-white blur-3xl"/>
         <div className="absolute bottom-10 right-10 w-96 h-96 rounded-full bg-white blur-3xl"/>
       </div>
-      <div className="relative w-full px-4 sm:px-6 py-20 flex flex-col md:flex-row items-center gap-10">
-        <div className="flex-1 text-center md:text-left">
+      <div className="relative w-full px-4 sm:px-6 py-16 md:py-20 flex flex-col md:flex-row items-center gap-10">
+        <div className="flex-1 text-center md:text-left md:min-h-[340px] flex flex-col md:justify-between">
           <span className={`inline-block text-xs font-bold tracking-widest ${s.accent} border border-current rounded-full px-3 py-1 mb-4 animate-pulse`}>
             {s.badge}
           </span>
-          <h1 className="text-4xl md:text-6xl font-black text-white leading-tight mb-4 transition-all duration-500">
+          <h1 className="text-4xl md:text-6xl font-black text-white leading-tight mb-4 transition-all duration-500 min-h-[3.25rem] md:min-h-[4.75rem] line-clamp-2">
             {s.title}
           </h1>
-          <p className="text-gray-300 text-lg mb-8 max-w-md">{s.subtitle}</p>
-          {s.code && (
-            <div className="mb-8 inline-flex flex-col items-start gap-2 rounded-2xl border border-emerald-400/40 bg-black/25 px-4 py-3">
-              <span className="text-xs font-semibold text-emerald-200 tracking-widest">{s.codeLabel}</span>
-              <span className="text-3xl md:text-4xl font-black text-emerald-300 tracking-wider">{s.code}</span>
-              {s.discount && <span className="text-xs font-semibold text-emerald-100">{s.discount}</span>}
+          <p className="text-gray-300 text-lg mb-8 max-w-md min-h-[4rem] md:min-h-[4.5rem] line-clamp-2">{s.subtitle}</p>
+          <div className="flex flex-col items-center md:items-start gap-5">
+            <div className="h-[126px] flex items-start justify-center md:justify-start">
+              {s.code ? (
+                <div className="w-fit rounded-2xl border border-emerald-400/40 bg-black/25 px-4 py-3 text-left">
+                  <span className="text-xs font-semibold text-emerald-200 tracking-widest">{s.codeLabel}</span>
+                  <span className="block text-3xl md:text-4xl font-black text-emerald-300 tracking-wider">{s.code}</span>
+                  {s.discount && <span className="text-xs font-semibold text-emerald-100">{s.discount}</span>}
+                </div>
+              ) : (
+                <div className="w-fit rounded-2xl border border-white/10 bg-black/15 px-4 py-3 text-left opacity-0 pointer-events-none">
+                  <span className="text-xs font-semibold tracking-widest">Use Code</span>
+                  <span className="block text-3xl md:text-4xl font-black tracking-wider">CODE</span>
+                  <span className="text-xs font-semibold">0% OFF</span>
+                </div>
+              )}
             </div>
-          )}
-          <button
-            onClick={() => document.getElementById('products-section')?.scrollIntoView({ behavior: 'smooth' })}
-            className={`bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold px-8 py-4 rounded-2xl text-lg shadow-xl hover:shadow-cyan-500/25 transition-all duration-300 hover:-translate-y-1`}
-          >
-            Shop Now →
-          </button>
+            <button
+              onClick={() => document.getElementById('products-section')?.scrollIntoView({ behavior: 'smooth' })}
+              className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold px-8 py-4 rounded-2xl text-lg shadow-xl hover:shadow-cyan-500/25 transition-all duration-300 hover:-translate-y-1"
+            >
+              Shop Now ->
+            </button>
+          </div>
         </div>
         <div className="flex-1 flex justify-center">
           <img
@@ -373,7 +391,7 @@ function SortSelect({ value, onChange }) {
   );
 }
 
-function ProductCard({ product, onAdd, onView, added }) {
+function ProductCard({ product, onAdd, onView, added, disableReveal = false }) {
   const [imgError, setImgError] = useState(false);
   const [visible, setVisible] = useState(false);
   const ref = useRef(null);
@@ -381,6 +399,11 @@ function ProductCard({ product, onAdd, onView, added }) {
   const outOfStock = availableStock <= 0;
 
   useEffect(() => {
+    if (disableReveal) {
+      setVisible(true);
+      return undefined;
+    }
+
     const obs = new IntersectionObserver(
       ([e]) => {
         if (e.isIntersecting) {
@@ -392,14 +415,16 @@ function ProductCard({ product, onAdd, onView, added }) {
     );
     if (ref.current) obs.observe(ref.current);
     return () => obs.disconnect();
-  }, []);
+  }, [disableReveal]);
+
+  const isVisible = disableReveal || visible;
 
   return (
     <div
       ref={ref}
       onClick={() => onView(product)}
       className={`group bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden hover:-translate-y-1 hover:border-cyan-500/50 hover:shadow-2xl hover:shadow-cyan-500/15 transition-all duration-500 flex flex-col cursor-pointer ${
-        visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
+        isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
       }`}
     >
       {/* Image */}
@@ -508,42 +533,117 @@ function getRotatedSlice(products, startIndex, count) {
   return next;
 }
 
+function getFeaturedVisibleCount(width) {
+  if (width < 640) return 1;
+  if (width < 1024) return 2;
+  return FEATURED_VISIBLE_COUNT;
+}
+
 function FeaturedCyclingRow({ title, products, onAdd, onView, recentlyAdded }) {
   const [startIndex, setStartIndex] = useState(0);
+  const [visibleCount, setVisibleCount] = useState(() => getFeaturedVisibleCount(typeof window === 'undefined' ? 1280 : window.innerWidth));
+  const [isSliding, setIsSliding] = useState(false);
+  const [disableTransition, setDisableTransition] = useState(false);
+  const [slideDistance, setSlideDistance] = useState(0);
+  const firstSlotRef = useRef(null);
+  const isCyclingEnabled = products.length > visibleCount;
+
+  useEffect(() => {
+    const updateVisibleCount = () => setVisibleCount(getFeaturedVisibleCount(window.innerWidth));
+    window.addEventListener('resize', updateVisibleCount, { passive: true });
+    return () => window.removeEventListener('resize', updateVisibleCount);
+  }, []);
 
   useEffect(() => {
     setStartIndex(0);
-  }, [products]);
+    setIsSliding(false);
+    setDisableTransition(false);
+  }, [products, visibleCount]);
 
   useEffect(() => {
-    if (!products || products.length <= 1) return undefined;
+    const updateSlideDistance = () => {
+      if (!firstSlotRef.current) return;
+      setSlideDistance(firstSlotRef.current.offsetWidth);
+    };
+
+    updateSlideDistance();
+    window.addEventListener('resize', updateSlideDistance, { passive: true });
+    return () => window.removeEventListener('resize', updateSlideDistance);
+  }, [visibleCount, startIndex, products.length]);
+
+  useEffect(() => {
+    if (!isCyclingEnabled || slideDistance <= 0) return undefined;
     const timer = setInterval(() => {
-      setStartIndex(prev => (prev + 1) % products.length);
-    }, 3000);
+      setIsSliding((prev) => (prev ? prev : true));
+    }, FEATURED_CYCLE_MS);
     return () => clearInterval(timer);
-  }, [products]);
+  }, [isCyclingEnabled, slideDistance]);
+
+  useEffect(() => {
+    if (!isSliding || !isCyclingEnabled) return undefined;
+    const timer = setTimeout(() => {
+      setDisableTransition(true);
+      setStartIndex((prev) => (prev + 1) % products.length);
+      setIsSliding(false);
+      requestAnimationFrame(() => {
+        setDisableTransition(false);
+      });
+    }, FEATURED_ANIMATION_MS);
+    return () => clearTimeout(timer);
+  }, [isSliding, isCyclingEnabled, products.length]);
 
   if (!products.length) return null;
 
-  const visibleProducts = getRotatedSlice(products, startIndex, 5);
+  const visibleProducts = getRotatedSlice(products, startIndex, visibleCount);
+  const slidingTrack = getRotatedSlice(products, startIndex, visibleCount + 1);
 
   return (
     <section className="space-y-4">
       <div className="flex items-end justify-between">
         <h3 className="text-2xl font-black text-white">{title}</h3>
-        <p className="text-xs text-gray-500">Auto-cycling every 3s</p>
+        <p className="text-xs text-gray-500">{isCyclingEnabled ? 'Auto-cycling every 3s' : 'Showing all products'}</p>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
-        {visibleProducts.map(product => (
-          <ProductCard
-            key={`${title}-${product.id}`}
-            product={product}
-            onAdd={onAdd}
-            onView={onView}
-            added={recentlyAdded.has(product.id)}
-          />
-        ))}
-      </div>
+      {!isCyclingEnabled ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
+          {visibleProducts.map((product) => (
+            <ProductCard
+              key={`${title}-static-${product.id}`}
+              product={product}
+              onAdd={onAdd}
+              onView={onView}
+              added={recentlyAdded.has(product.id)}
+              disableReveal
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="relative min-h-[22rem] overflow-hidden">
+          <div
+            className="flex -mx-2.5 transform-gpu will-change-transform"
+            style={{
+              transform: `translate3d(${isSliding ? -slideDistance : 0}px, 0, 0)`,
+              transition: disableTransition ? 'none' : `transform ${FEATURED_ANIMATION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`,
+            }}
+          >
+            {slidingTrack.map((product, index) => (
+              <div
+                key={`${title}-slot-${index}-${product.id}`}
+                className="flex-shrink-0 px-2.5"
+                style={{ width: `${100 / visibleCount}%` }}
+                ref={index === 0 ? firstSlotRef : undefined}
+              >
+                <ProductCard
+                  product={product}
+                  onAdd={onAdd}
+                  onView={onView}
+                  added={recentlyAdded.has(product.id)}
+                  disableReveal
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -1138,7 +1238,7 @@ function Footer() {
             <div className="w-8 h-8 bg-gradient-to-br from-cyan-400 to-blue-600 rounded-lg flex items-center justify-center">
               <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M3 5a2 2 0 012-2h10a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2V5zm2 0v6h10V5H5zm5 8a1 1 0 110 2 1 1 0 010-2z"/>
-              </svg>
+                </svg>
             </div>
             <span className="text-white font-bold text-lg"><span className="text-cyan-400">Tech</span>Store</span>
           </div>
