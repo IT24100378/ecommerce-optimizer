@@ -79,6 +79,7 @@ export default function ProductDashboard() {
                         + Add New Product
                     </button>
                 </div>
+                <p className="text-xs text-gray-500 mb-4">Stock levels are read-only here and managed from the Inventory module.</p>
 
                 {/* Error banner */}
                 {error && (
@@ -174,7 +175,7 @@ export default function ProductDashboard() {
                                                 ${Number(product.basePrice).toFixed(2)}
                                             </td>
                                             <td className="px-6 py-4 text-sm font-semibold text-gray-800">
-                                                {Number(product.stockQuantity ?? 0)}
+                                                {Number(product.availableStock ?? product.stockQuantity ?? 0)}
                                             </td>
                                             <td className="px-6 py-4 space-x-2">
                                                 <button

@@ -46,6 +46,25 @@ router.get('/', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, res
     }
 });
 
+// GET /active - list only currently active promotions (public for storefront banners)
+router.get('/active', async (req, res) => {
+    const prisma = req.app.locals.prisma;
+    const now = new Date();
+    try {
+        const promotions = await prisma.promotion.findMany({
+            where: {
+                isActive: true,
+                startDate: { lte: now },
+                endDate: { gte: now },
+            },
+            orderBy: { startDate: 'asc' },
+        });
+        res.json(promotions);
+    } catch (err) {
+        return serverError(res, err);
+    }
+});
+
 // GET /:id - get single promotion
 router.get('/:id', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, res) => {
     const prisma = req.app.locals.prisma;

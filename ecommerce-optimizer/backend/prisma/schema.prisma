@@ -40,6 +40,7 @@ model Product {
   createdAt   DateTime @default(now())
 
   inventory  Inventory?
+  inventoryAdjustments InventoryAdjustment[]
   orderItems OrderItem[]
   reviews    Review[]
   forecasts  DemandForecast[]
@@ -66,6 +67,22 @@ model Order {
   orderDate   DateTime @default(now())
 
   items OrderItem[]
+  inventoryAdjustments InventoryAdjustment[]
+}
+
+model InventoryAdjustment {
+  id        Int      @id @default(autoincrement())
+  productId Int
+  product   Product  @relation(fields: [productId], references: [id])
+  orderId   Int?
+  order     Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  reason    String
+  change    Int
+  createdAt DateTime @default(now())
+
+  @@unique([orderId, productId, reason])
+  @@index([productId, createdAt])
+  @@index([orderId])
 }
 
 // Belongs to Order Management (Crucial for AI historical data)

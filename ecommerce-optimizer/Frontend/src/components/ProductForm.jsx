@@ -9,7 +9,6 @@ const EMPTY_FORM = {
     sku: '',
     category: '',
     basePrice: '',
-    stockQuantity: '',
     imageUrl: '',
 };
 
@@ -27,7 +26,6 @@ export default function ProductForm({ initialData, onSuccess, onCancel }) {
                 sku: initialData.sku || '',
                 category: initialData.category || '',
                 basePrice: initialData.basePrice || '',
-                stockQuantity: initialData.stockQuantity ?? '',
                 imageUrl: initialData.imageUrl || '',
             });
         } else {
@@ -48,7 +46,6 @@ export default function ProductForm({ initialData, onSuccess, onCancel }) {
         const payload = {
             ...form,
             basePrice: parseFloat(form.basePrice) || 0,
-            stockQuantity: parseInt(form.stockQuantity, 10),
         };
 
         try {
@@ -77,7 +74,6 @@ export default function ProductForm({ initialData, onSuccess, onCancel }) {
         { id: 'sku', label: 'SKU', type: 'text', required: true, placeholder: 'e.g. WH-1000XM5' },
         { id: 'category', label: 'Category', type: 'text', required: true, placeholder: 'e.g. Electronics' },
         { id: 'basePrice', label: 'Base Price ($)', type: 'number', required: true, placeholder: '0.00', step: '0.01', min: '0' },
-        { id: 'stockQuantity', label: 'Stock Quantity', type: 'number', required: true, placeholder: '0', min: '0' },
         { id: 'imageUrl', label: 'Image URL', type: 'url', required: false, placeholder: 'https://example.com/image.jpg' },
     ];
 
@@ -108,6 +104,10 @@ export default function ProductForm({ initialData, onSuccess, onCancel }) {
                     />
                 </div>
             ))}
+
+            <p className="text-xs text-gray-500">
+                Stock is managed in the Inventory module. New products start at stock 0.
+            </p>
 
             {/* Description textarea */}
             <div>

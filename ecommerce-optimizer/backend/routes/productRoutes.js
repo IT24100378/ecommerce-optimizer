@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateJwt, requireRole } = require('../middleware/auth');
+const { ensureInventoryRecord, mapProductWithInventory } = require('../services/inventoryService');
 
 function serverError(res, err, fallbackMessage) {
     console.error('[products] Route error:', err);
@@ -13,19 +14,34 @@ function serverError(res, err, fallbackMessage) {
 // POST /api/products – Create a new product
 router.post('/', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, res) => {
     try {
-        const { name, description, sku, category, basePrice, imageUrl, stockQuantity } = req.body;
+        const { name, description, sku, category, basePrice, imageUrl } = req.body;
         const prisma = req.app.locals.prisma;
-        const parsedStockQuantity = parseInt(stockQuantity, 10);
-
-        if (stockQuantity === undefined || Number.isNaN(parsedStockQuantity) || parsedStockQuantity < 0) {
-            return res.status(400).json({ error: 'stockQuantity is required and must be a non-negative integer.' });
+        const parsedBasePrice = Number.parseFloat(basePrice);
+        if (Number.isNaN(parsedBasePrice) || parsedBasePrice < 0) {
+            return res.status(400).json({ error: 'basePrice is required and must be a non-negative number.' });
         }
 
-        const newProduct = await prisma.product.create({
-            data: { name, description, sku, category, basePrice, imageUrl, stockQuantity: parsedStockQuantity },
+        const newProduct = await prisma.$transaction(async (tx) => {
+            const createdProduct = await tx.product.create({
+                data: {
+                    name,
+                    description,
+                    sku,
+                    category,
+                    basePrice: parsedBasePrice,
+                    imageUrl,
+                    // Stock is controlled by Inventory; default product stock to 0 for compatibility.
+                    stockQuantity: 0,
+                },
+            });
+            await ensureInventoryRecord(tx, createdProduct.id);
+            return tx.product.findUnique({
+                where: { id: createdProduct.id },
+                include: { inventory: true },
+            });
         });
 
-        res.status(201).json({ message: 'Product created successfully!', product: newProduct });
+        res.status(201).json({ message: 'Product created successfully!', product: mapProductWithInventory(newProduct) });
     } catch (error) {
         return serverError(res, error, 'Failed to create product. SKU might already exist.');
     }
@@ -42,10 +58,11 @@ router.get('/:id', async (req, res) => {
 
         const product = await prisma.product.findFirst({
             where: { id, isActive: true },
+            include: { inventory: true },
         });
 
         if (!product) return res.status(404).json({ error: 'Product not found.' });
-        res.status(200).json(product);
+        res.status(200).json(mapProductWithInventory(product));
     } catch (error) {
         return serverError(res, error, 'Failed to fetch product.');
     }
@@ -58,10 +75,11 @@ router.get('/', async (req, res) => {
 
         const products = await prisma.product.findMany({
             where: { isActive: true },
+            include: { inventory: true },
             orderBy: { createdAt: 'desc' },
         });
 
-        res.status(200).json(products);
+        res.status(200).json(products.map(mapProductWithInventory));
     } catch (error) {
         return serverError(res, error, 'Failed to fetch products.');
     }
@@ -74,23 +92,30 @@ router.put('/:id', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, 
         if (isNaN(id) || id <= 0) {
             return res.status(400).json({ error: 'Invalid product ID.' });
         }
-        const { name, description, sku, category, basePrice, imageUrl, stockQuantity } = req.body;
+        const { name, description, sku, category, basePrice, imageUrl } = req.body;
         const prisma = req.app.locals.prisma;
         const data = { name, description, sku, category, basePrice, imageUrl };
-        if (stockQuantity !== undefined) {
-            const parsedStockQuantity = parseInt(stockQuantity, 10);
-            if (Number.isNaN(parsedStockQuantity) || parsedStockQuantity < 0) {
-                return res.status(400).json({ error: 'stockQuantity must be a non-negative integer.' });
+        if (basePrice !== undefined) {
+            const parsedBasePrice = Number.parseFloat(basePrice);
+            if (Number.isNaN(parsedBasePrice) || parsedBasePrice < 0) {
+                return res.status(400).json({ error: 'basePrice must be a non-negative number.' });
             }
-            data.stockQuantity = parsedStockQuantity;
+            data.basePrice = parsedBasePrice;
         }
 
-        const updatedProduct = await prisma.product.update({
-            where: { id },
-            data,
+        const updatedProduct = await prisma.$transaction(async (tx) => {
+            const updated = await tx.product.update({
+                where: { id },
+                data,
+                include: { inventory: true },
+            });
+            if (!updated.inventory) {
+                await ensureInventoryRecord(tx, updated.id);
+            }
+            return tx.product.findUnique({ where: { id: updated.id }, include: { inventory: true } });
         });
 
-        res.status(200).json({ message: 'Product updated successfully!', product: updatedProduct });
+        res.status(200).json({ message: 'Product updated successfully!', product: mapProductWithInventory(updatedProduct) });
     } catch (error) {
         return serverError(res, error, 'Failed to update product.');
     }

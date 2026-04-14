@@ -134,7 +134,10 @@ router.post('/predict', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (
     }
 
     try {
-        const product = await prisma.product.findUnique({ where: { id: productId } });
+        const product = await prisma.product.findUnique({
+            where: { id: productId },
+            include: { inventory: true },
+        });
         if (!product || !product.isActive) {
             return res.status(404).json({ error: 'Product not found or inactive' });
         }
@@ -219,11 +222,21 @@ router.post('/predict', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (
             orderBy: { forecastForDate: 'asc' },
         });
 
+        const currentStock = product.inventory?.stockLevel ?? product.stockQuantity ?? 0;
+        const lowStockThreshold = product.inventory?.lowStockThreshold ?? 10;
+        const totalPredictedDemand = savedForecasts.reduce((sum, forecast) => sum + (forecast.predictedDemand || 0), 0);
+        const recommendedRestock = Math.max(0, totalPredictedDemand - currentStock);
+
         return res.json({
             product: { id: product.id, name: product.name, sku: product.sku, category: product.category },
             days: totalDays,
             startDate: firstDate.toISOString().slice(0, 10),
             endDate: (resolvedEndDate || lastDate).toISOString().slice(0, 10),
+            inventorySnapshot: {
+                currentStock,
+                lowStockThreshold,
+                recommendedRestock,
+            },
             predictions: savedForecasts,
         });
     } catch (err) {

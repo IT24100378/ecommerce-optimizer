@@ -54,6 +54,8 @@ export default function ProductPage({ product, user, onAddToCart, added, onBack,
   const [reviewError, setReviewError] = useState('');
   const [imgError, setImgError] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const availableStock = Number(product.availableStock ?? product.stockQuantity ?? 0);
+  const outOfStock = availableStock <= 0;
 
   const fetchReviews = useCallback(async () => {
     setLoadingReviews(true);
@@ -236,15 +238,33 @@ export default function ProductPage({ product, user, onAddToCart, added, onBack,
               </p>
             )}
 
+            <div className="mb-4">
+              {outOfStock ? (
+                <span className="inline-flex items-center bg-red-500/20 text-red-300 text-xs font-semibold px-3 py-1 rounded-full border border-red-500/30">
+                  Out of Stock
+                </span>
+              ) : (
+                <span className="inline-flex items-center bg-green-500/20 text-green-300 text-xs font-semibold px-3 py-1 rounded-full border border-green-500/30">
+                  In Stock ({availableStock})
+                </span>
+              )}
+            </div>
+
             <button
               onClick={() => onAddToCart(product)}
+              disabled={outOfStock}
               className={`flex items-center justify-center gap-3 font-bold py-4 px-8 rounded-2xl text-lg transition-all duration-200 ${
+                outOfStock
+                  ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                  :
                 added
                   ? 'bg-green-600 text-white scale-95'
                   : 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white hover:shadow-xl hover:shadow-cyan-500/25 hover:-translate-y-0.5'
               }`}
             >
-              {added ? (
+              {outOfStock ? (
+                <>Out of Stock</>
+              ) : added ? (
                 <>
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />

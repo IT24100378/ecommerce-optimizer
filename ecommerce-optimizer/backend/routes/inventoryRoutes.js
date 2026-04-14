@@ -1,6 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateJwt, requireRole } = require('../middleware/auth');
+const { syncProductStockMirror } = require('../services/inventoryService');
+
+function parseNonNegativeInt(value) {
+    if (value === undefined || value === null || value === '') return null;
+    const parsed = Number.parseInt(value, 10);
+    return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+}
 
 function serverError(res, err) {
     console.error('[inventory] Route error:', err);
@@ -40,18 +47,51 @@ router.get('/:id', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, 
 router.post('/', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, res) => {
     const prisma = req.app.locals.prisma;
     const { productId, stockLevel, lowStockThreshold } = req.body;
-    if (!productId) return res.status(400).json({ error: 'productId is required' });
+    const parsedProductId = Number.parseInt(productId, 10);
+    const parsedStockLevel = stockLevel === undefined ? 0 : parseNonNegativeInt(stockLevel);
+    const parsedLowStockThreshold = lowStockThreshold === undefined ? 10 : parseNonNegativeInt(lowStockThreshold);
+
+    if (!Number.isInteger(parsedProductId) || parsedProductId <= 0) {
+        return res.status(400).json({ error: 'productId is required and must be a positive integer' });
+    }
+    if (parsedStockLevel === null) {
+        return res.status(400).json({ error: 'stockLevel must be a non-negative integer' });
+    }
+    if (parsedLowStockThreshold === null) {
+        return res.status(400).json({ error: 'lowStockThreshold must be a non-negative integer' });
+    }
+
     try {
-        const record = await prisma.inventory.create({
-            data: {
-                productId: parseInt(productId),
-                stockLevel: stockLevel !== undefined ? parseInt(stockLevel) : 0,
-                lowStockThreshold: lowStockThreshold !== undefined ? parseInt(lowStockThreshold) : 10,
-            },
-            include: { product: true },
+        const record = await prisma.$transaction(async (tx) => {
+            const product = await tx.product.findUnique({ where: { id: parsedProductId } });
+            if (!product) {
+                const err = new Error('Product not found');
+                err.code = 'PRODUCT_NOT_FOUND';
+                throw err;
+            }
+
+            const upserted = await tx.inventory.upsert({
+                where: { productId: parsedProductId },
+                create: {
+                    productId: parsedProductId,
+                    stockLevel: parsedStockLevel,
+                    lowStockThreshold: parsedLowStockThreshold,
+                },
+                update: {
+                    stockLevel: parsedStockLevel,
+                    lowStockThreshold: parsedLowStockThreshold,
+                },
+                include: { product: true },
+            });
+
+            await syncProductStockMirror(tx, parsedProductId, upserted.stockLevel);
+            return upserted;
         });
         res.status(201).json(record);
     } catch (err) {
+        if (err.code === 'PRODUCT_NOT_FOUND') {
+            return res.status(404).json({ error: 'Product not found' });
+        }
         return serverError(res, err);
     }
 });
@@ -59,18 +99,45 @@ router.post('/', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, re
 // PUT /:id - update stock level and/or threshold
 router.put('/:id', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, res) => {
     const prisma = req.app.locals.prisma;
+    const inventoryId = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(inventoryId) || inventoryId <= 0) {
+        return res.status(400).json({ error: 'Invalid inventory id' });
+    }
+
     const { stockLevel, lowStockThreshold } = req.body;
     const data = {};
-    if (stockLevel !== undefined) data.stockLevel = parseInt(stockLevel);
-    if (lowStockThreshold !== undefined) data.lowStockThreshold = parseInt(lowStockThreshold);
+    if (stockLevel !== undefined) {
+        const parsedStockLevel = parseNonNegativeInt(stockLevel);
+        if (parsedStockLevel === null) return res.status(400).json({ error: 'stockLevel must be a non-negative integer' });
+        data.stockLevel = parsedStockLevel;
+    }
+    if (lowStockThreshold !== undefined) {
+        const parsedLowStockThreshold = parseNonNegativeInt(lowStockThreshold);
+        if (parsedLowStockThreshold === null) return res.status(400).json({ error: 'lowStockThreshold must be a non-negative integer' });
+        data.lowStockThreshold = parsedLowStockThreshold;
+    }
+
+    if (Object.keys(data).length === 0) {
+        return res.status(400).json({ error: 'At least one field (stockLevel or lowStockThreshold) is required' });
+    }
+
     try {
-        const record = await prisma.inventory.update({
-            where: { id: parseInt(req.params.id) },
-            data,
-            include: { product: true },
+        const record = await prisma.$transaction(async (tx) => {
+            const updated = await tx.inventory.update({
+                where: { id: inventoryId },
+                data,
+                include: { product: true },
+            });
+            if (data.stockLevel !== undefined) {
+                await syncProductStockMirror(tx, updated.productId, updated.stockLevel);
+            }
+            return updated;
         });
         res.json(record);
     } catch (err) {
+        if (err.code === 'P2025') {
+            return res.status(404).json({ error: 'Inventory record not found' });
+        }
         return serverError(res, err);
     }
 });
@@ -78,10 +145,20 @@ router.put('/:id', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, 
 // DELETE /:id - delete inventory record
 router.delete('/:id', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, res) => {
     const prisma = req.app.locals.prisma;
+    const inventoryId = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(inventoryId) || inventoryId <= 0) {
+        return res.status(400).json({ error: 'Invalid inventory id' });
+    }
     try {
-        await prisma.inventory.delete({ where: { id: parseInt(req.params.id) } });
+        await prisma.$transaction(async (tx) => {
+            const deleted = await tx.inventory.delete({ where: { id: inventoryId } });
+            await syncProductStockMirror(tx, deleted.productId, 0);
+        });
         res.json({ message: 'Inventory record deleted successfully' });
     } catch (err) {
+        if (err.code === 'P2025') {
+            return res.status(404).json({ error: 'Inventory record not found' });
+        }
         return serverError(res, err);
     }
 });

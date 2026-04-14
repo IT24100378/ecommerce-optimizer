@@ -3,6 +3,7 @@ import axios from 'axios';
 import ProductPage from './ProductPage';
 
 const API = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
+const NAVBAR_HEIGHT = 88;
 
 // ─── Utility ────────────────────────────────────────────────────────────────
 function formatPrice(n) {
@@ -217,8 +218,8 @@ function AuthModal({ open, mode, onClose, onAuthSuccess }) {
   );
 }
 
-function HeroBanner() {
-  const slides = [
+function HeroBanner({ promotions = [] }) {
+  const defaultSlides = [
     {
       title: 'Latest Smartphones',
       subtitle: 'Explore the newest flagship phones with cutting-edge technology',
@@ -245,7 +246,34 @@ function HeroBanner() {
     },
   ];
 
-  const s = slides.find(slide => slide.title === 'Premium Laptops') || slides[0];
+  const promoSlides = promotions.map((promo) => ({
+    title: promo.campaignName,
+    subtitle: `Special discount is live now. Use code ${promo.promoCode} to claim ${promo.discountPercentage}% off.`,
+    badge: 'LIMITED OFFER',
+    gradient: 'from-emerald-900 via-teal-900 to-cyan-900',
+    accent: 'text-emerald-300',
+    code: promo.promoCode,
+    codeLabel: 'Use Code',
+    discount: `${promo.discountPercentage}% OFF`,
+    img: 'https://images.unsplash.com/photo-1556740738-b6a63e27c4df?w=600&q=80',
+  }));
+
+  const slides = promoSlides.length > 0 ? promoSlides : defaultSlides;
+  const [slideIndex, setSlideIndex] = useState(0);
+
+  useEffect(() => {
+    setSlideIndex(0);
+  }, [slides.length]);
+
+  useEffect(() => {
+    if (slides.length <= 1) return undefined;
+    const timer = setInterval(() => {
+      setSlideIndex((prev) => (prev + 1) % slides.length);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [slides.length]);
+
+  const s = slides[slideIndex] || slides[0];
 
   return (
     <div className={`relative overflow-hidden bg-gradient-to-r ${s.gradient} transition-all duration-1000`} style={{ minHeight: '480px' }}>
@@ -262,6 +290,13 @@ function HeroBanner() {
             {s.title}
           </h1>
           <p className="text-gray-300 text-lg mb-8 max-w-md">{s.subtitle}</p>
+          {s.code && (
+            <div className="mb-8 inline-flex flex-col items-start gap-2 rounded-2xl border border-emerald-400/40 bg-black/25 px-4 py-3">
+              <span className="text-xs font-semibold text-emerald-200 tracking-widest">{s.codeLabel}</span>
+              <span className="text-3xl md:text-4xl font-black text-emerald-300 tracking-wider">{s.code}</span>
+              {s.discount && <span className="text-xs font-semibold text-emerald-100">{s.discount}</span>}
+            </div>
+          )}
           <button
             onClick={() => document.getElementById('products-section')?.scrollIntoView({ behavior: 'smooth' })}
             className={`bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold px-8 py-4 rounded-2xl text-lg shadow-xl hover:shadow-cyan-500/25 transition-all duration-300 hover:-translate-y-1`}
@@ -281,10 +316,10 @@ function HeroBanner() {
   );
 }
 
-function CategoryBar({ categories, active, onSelect }) {
+function CategoryBar({ categories, active, onSelect, topOffset }) {
   const all = ['All', ...categories];
   return (
-    <section className="w-full bg-gray-900 border-b border-gray-800 sticky top-[61px] z-40">
+    <section className="w-full bg-gray-900 border-b border-gray-800 sticky z-40" style={{ top: `${topOffset}px` }}>
       <div className="w-full px-4 sm:px-6 overflow-x-auto">
         <div className="flex gap-1 py-3 min-w-max">
           {all.map(cat => (
@@ -342,6 +377,8 @@ function ProductCard({ product, onAdd, onView, added }) {
   const [imgError, setImgError] = useState(false);
   const [visible, setVisible] = useState(false);
   const ref = useRef(null);
+  const availableStock = Number(product.availableStock ?? product.stockQuantity ?? 0);
+  const outOfStock = availableStock <= 0;
 
   useEffect(() => {
     const obs = new IntersectionObserver(
@@ -385,27 +422,35 @@ function ProductCard({ product, onAdd, onView, added }) {
         <span className="absolute top-3 left-3 bg-gray-900/80 backdrop-blur text-cyan-400 text-xs font-semibold px-2 py-1 rounded-md">
           {product.category}
         </span>
+        <span className={`absolute top-3 right-3 text-white text-xs font-semibold px-2 py-1 rounded-md ${
+          outOfStock ? 'bg-red-600/90' : 'bg-green-600/90'
+        }`}>
+          {outOfStock ? 'Out of Stock' : `In Stock (${availableStock})`}
+        </span>
       </div>
 
       {/* Info */}
       <div className="p-4 flex flex-col flex-1">
-        <h3 className="text-white font-semibold text-base leading-snug mb-1 line-clamp-2 group-hover:text-cyan-400 transition-colors duration-200">
+        <h3 className="text-white font-semibold text-base leading-snug mb-3 line-clamp-2 min-h-[3rem] group-hover:text-cyan-400 transition-colors duration-200">
           {product.name}
         </h3>
-        {product.description && (
-          <p className="text-gray-500 text-xs mb-3 line-clamp-2">{product.description}</p>
-        )}
         <div className="mt-auto flex items-center justify-between">
           <span className="text-cyan-400 font-black text-xl">{formatPrice(product.basePrice)}</span>
           <button
             onClick={(e) => { e.stopPropagation(); onAdd(product); }}
+            disabled={outOfStock}
             className={`flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-xl transition-all duration-200 ${
+              outOfStock
+                ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                :
               added
                 ? 'bg-green-600 text-white scale-95'
                 : 'bg-cyan-500 hover:bg-cyan-400 text-white hover:scale-105'
             }`}
           >
-            {added ? (
+            {outOfStock ? (
+              <>Out of Stock</>
+            ) : added ? (
               <>
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7"/>
@@ -449,6 +494,55 @@ function CategoryCarouselRow({ title, products, onAdd, onView, recentlyAdded }) 
             </div>
           ))}
         </div>
+      </div>
+    </section>
+  );
+}
+
+function getRotatedSlice(products, startIndex, count) {
+  if (!products.length || count <= 0) return [];
+  const next = [];
+  for (let i = 0; i < Math.min(count, products.length); i += 1) {
+    next.push(products[(startIndex + i) % products.length]);
+  }
+  return next;
+}
+
+function FeaturedCyclingRow({ title, products, onAdd, onView, recentlyAdded }) {
+  const [startIndex, setStartIndex] = useState(0);
+
+  useEffect(() => {
+    setStartIndex(0);
+  }, [products]);
+
+  useEffect(() => {
+    if (!products || products.length <= 1) return undefined;
+    const timer = setInterval(() => {
+      setStartIndex(prev => (prev + 1) % products.length);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [products]);
+
+  if (!products.length) return null;
+
+  const visibleProducts = getRotatedSlice(products, startIndex, 5);
+
+  return (
+    <section className="space-y-4">
+      <div className="flex items-end justify-between">
+        <h3 className="text-2xl font-black text-white">{title}</h3>
+        <p className="text-xs text-gray-500">Auto-cycling every 3s</p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
+        {visibleProducts.map(product => (
+          <ProductCard
+            key={`${title}-${product.id}`}
+            product={product}
+            onAdd={onAdd}
+            onView={onView}
+            added={recentlyAdded.has(product.id)}
+          />
+        ))}
       </div>
     </section>
   );
@@ -1106,6 +1200,7 @@ export default function StoreFront() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [stockNotice, setStockNotice] = useState('');
   const [selectedProduct, setSelectedProduct] = useState(null);
+  const [activePromotions, setActivePromotions] = useState([]);
 
   const { items: cartItems, add, remove, update, clear, total, count } = useCart();
 
@@ -1121,6 +1216,27 @@ export default function StoreFront() {
       })
       .catch(() => setError('Failed to load products. Please try again later.'))
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const fetchActivePromotions = async () => {
+      try {
+        const { data } = await axios.get(`${API}/api/promotions/active`);
+        if (mounted) {
+          setActivePromotions(Array.isArray(data) ? data : []);
+        }
+      } catch {
+        if (mounted) setActivePromotions([]);
+      }
+    };
+
+    fetchActivePromotions();
+    const timer = setInterval(fetchActivePromotions, 30000);
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
   }, []);
 
   const categories = [...new Set(products.map(p => p.category).filter(Boolean))].sort();
@@ -1139,29 +1255,31 @@ export default function StoreFront() {
       return 0;
     });
 
-  const featuredCategories = ['Mobile Phones', 'Laptops', 'TVs'];
-  const featuredCategorySet = useMemo(
-    () => new Set(featuredCategories.map(category => category.toLowerCase())),
-    []
-  );
+  const featuredCategories = useMemo(() => ([
+    { title: 'Mobile Phones', aliases: ['mobile phones'] },
+    { title: 'Laptops', aliases: ['laptops'] },
+    { title: 'TV', aliases: ['tv', 'tvs'] },
+  ]), []);
+
   const categoryRows = useMemo(() => {
-    const normalizedCategoryRows = featuredCategories.map((title) => ({
-      title,
-      products: filtered.filter(p => p.category?.toLowerCase().trim() === title.toLowerCase().trim()),
-    }));
-    const fallbackCategoryRows = categories
-      .filter(category => !featuredCategorySet.has(category.toLowerCase().trim()))
-      .map(category => ({
-        title: category,
-        products: filtered.filter(p => p.category?.toLowerCase().trim() === category.toLowerCase().trim()),
+    const normalizeCategory = (value) => (value || '').toLowerCase().trim();
+    return featuredCategories
+      .map(({ title, aliases }) => ({
+        title,
+        products: filtered.filter((p) => aliases.includes(normalizeCategory(p.category))),
       }))
       .filter(row => row.products.length > 0);
-    return [...normalizedCategoryRows.filter(row => row.products.length > 0), ...fallbackCategoryRows].slice(0, 3);
-  }, [categories, featuredCategorySet, filtered]);
+  }, [featuredCategories, filtered]);
 
   const handleAdd = (product) => {
+    const availableStock = Number(product.availableStock ?? product.stockQuantity ?? 0);
     const currentInCart = cartItems.find(i => i.id === product.id);
-    if ((currentInCart?.qty || 0) >= Number(product.stockQuantity || 0)) {
+    if (availableStock <= 0) {
+      setStockNotice(`${product.name} is currently out of stock.`);
+      setTimeout(() => setStockNotice(''), 2500);
+      return;
+    }
+    if ((currentInCart?.qty || 0) >= availableStock) {
       setStockNotice(`${product.name} is out of stock for additional quantity.`);
       setTimeout(() => setStockNotice(''), 2500);
       return;
@@ -1243,7 +1361,7 @@ export default function StoreFront() {
 
       <main className="overflow-x-hidden">
         {/* Push content below fixed navbar */}
-        <div className="h-[61px]"/>
+        <div className="h-[88px]"/>
 
         {selectedProduct ? (
           <ProductPage
@@ -1256,9 +1374,9 @@ export default function StoreFront() {
           />
         ) : (
           <>
-            <CategoryBar categories={categories} active={activeCategory} onSelect={setActiveCategory} />
+            <CategoryBar categories={categories} active={activeCategory} onSelect={setActiveCategory} topOffset={NAVBAR_HEIGHT} />
 
-            <HeroBanner />
+            <HeroBanner promotions={activePromotions} />
 
             {/* Products section */}
             <section id="products-section" className="w-full bg-gray-950">
@@ -1320,17 +1438,31 @@ export default function StoreFront() {
                 </div>
               )}
 
-              {/* Category carousels */}
-              {!loading && filtered.length > 0 && (
+              {/* Featured cycling rows for home, normal grid for category pages */}
+              {!loading && filtered.length > 0 && activeCategory === 'All' && (
                 <div className="space-y-10">
                   {categoryRows.map(row => (
-                    <CategoryCarouselRow
+                    <FeaturedCyclingRow
                       key={row.title}
                       title={row.title}
                       products={row.products}
                       onAdd={handleAdd}
                       onView={setSelectedProduct}
                       recentlyAdded={recentlyAdded}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {!loading && filtered.length > 0 && activeCategory !== 'All' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
+                  {filtered.map(product => (
+                    <ProductCard
+                      key={product.id}
+                      product={product}
+                      onAdd={handleAdd}
+                      onView={setSelectedProduct}
+                      added={recentlyAdded.has(product.id)}
                     />
                   ))}
                 </div>

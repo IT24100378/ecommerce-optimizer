@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateJwt, requireRole } = require('../middleware/auth');
+const { adjustStock, ensureInventoryRecord } = require('../services/inventoryService');
+
+const RESTOCK_STATUSES = new Set(['CANCELLED', 'RETURNED']);
 
 function parseId(value) {
     const id = Number.parseInt(value, 10);
@@ -91,29 +94,19 @@ router.post('/', authenticateJwt, async (req, res) => {
             const productIds = [...productQuantityMap.keys()];
             const products = await tx.product.findMany({
                 where: { id: { in: productIds }, isActive: true },
-                select: { id: true, stockQuantity: true },
+                select: { id: true },
             });
             if (products.length !== productIds.length) {
                 const availableIds = new Set(products.map(product => product.id));
                 const unavailableIds = productIds.filter(id => !availableIds.has(id));
                 throw new Error(`One or more products are unavailable: ${unavailableIds.join(', ')}`);
             }
-            const productMap = new Map(products.map(product => [product.id, product]));
-            for (const [productId, quantity] of productQuantityMap.entries()) {
-                const product = productMap.get(productId);
-                if (!product || product.stockQuantity < quantity) {
-                    throw new Error(`Insufficient stock for product ${productId}`);
-                }
+            for (const productId of productIds) {
+                // Ensure existing catalog items always have inventory records for stock ownership.
+                await ensureInventoryRecord(tx, productId);
             }
 
-            for (const [productId, quantity] of productQuantityMap.entries()) {
-                await tx.product.update({
-                    where: { id: productId },
-                    data: { stockQuantity: { decrement: quantity } },
-                });
-            }
-
-            return tx.order.create({
+            const createdOrder = await tx.order.create({
                 data: {
                     userId: req.user.id,
                     totalAmount: subtotalAmount,
@@ -128,6 +121,17 @@ router.post('/', authenticateJwt, async (req, res) => {
                     items: { include: { product: true } },
                 },
             });
+
+            for (const [productId, quantity] of productQuantityMap.entries()) {
+                await adjustStock(tx, {
+                    productId,
+                    delta: -quantity,
+                    reason: 'ORDER_PLACED',
+                    orderId: createdOrder.id,
+                });
+            }
+
+            return createdOrder;
         });
         res.status(201).json(order);
     } catch (err) {
@@ -141,22 +145,60 @@ router.post('/', authenticateJwt, async (req, res) => {
 // PUT /:id - update order status
 router.put('/:id', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, res) => {
     const prisma = req.app.locals.prisma;
-    const { status } = req.body;
+    const nextStatusRaw = req.body.status;
+    const status = typeof nextStatusRaw === 'string' ? nextStatusRaw.toUpperCase() : '';
     const orderId = parseId(req.params.id);
     if (!orderId) {
         return res.status(400).json({ error: 'Invalid order id' });
     }
+    if (!status) {
+        return res.status(400).json({ error: 'status is required' });
+    }
     try {
-        const order = await prisma.order.update({
-            where: { id: orderId },
-            data: { status },
-            include: {
-                user: { select: { id: true, name: true, email: true } },
-                items: { include: { product: true } },
-            },
+        const order = await prisma.$transaction(async (tx) => {
+            const existingOrder = await tx.order.findUnique({
+                where: { id: orderId },
+                include: { items: true },
+            });
+            if (!existingOrder) {
+                const err = new Error('Order not found');
+                err.code = 'ORDER_NOT_FOUND';
+                throw err;
+            }
+
+            const previousStatus = (existingOrder.status || '').toUpperCase();
+            const shouldRestock = !RESTOCK_STATUSES.has(previousStatus) && RESTOCK_STATUSES.has(status);
+
+            if (shouldRestock) {
+                const productQuantityMap = existingOrder.items.reduce((productQuantities, item) => {
+                    productQuantities.set(item.productId, (productQuantities.get(item.productId) || 0) + item.quantity);
+                    return productQuantities;
+                }, new Map());
+
+                for (const [productId, quantity] of productQuantityMap.entries()) {
+                    await adjustStock(tx, {
+                        productId,
+                        delta: quantity,
+                        reason: 'ORDER_RESTOCKED',
+                        orderId: existingOrder.id,
+                    });
+                }
+            }
+
+            return tx.order.update({
+                where: { id: orderId },
+                data: { status },
+                include: {
+                    user: { select: { id: true, name: true, email: true } },
+                    items: { include: { product: true } },
+                },
+            });
         });
         return res.json(order);
     } catch (err) {
+        if (err.code === 'ORDER_NOT_FOUND' || err.code === 'P2025') {
+            return res.status(404).json({ error: 'Order not found' });
+        }
         return serverError(res, err);
     }
 });
@@ -169,10 +211,40 @@ router.delete('/:id', authenticateJwt, requireRole('ADMIN'), async (req, res) =>
         return res.status(400).json({ error: 'Invalid order id' });
     }
     try {
-        await prisma.orderItem.deleteMany({ where: { orderId } });
-        await prisma.order.delete({ where: { id: orderId } });
+        await prisma.$transaction(async (tx) => {
+            const order = await tx.order.findUnique({
+                where: { id: orderId },
+                include: { items: true },
+            });
+            if (!order) {
+                const err = new Error('Order not found');
+                err.code = 'ORDER_NOT_FOUND';
+                throw err;
+            }
+
+            if (!RESTOCK_STATUSES.has((order.status || '').toUpperCase())) {
+                const productQuantityMap = order.items.reduce((productQuantities, item) => {
+                    productQuantities.set(item.productId, (productQuantities.get(item.productId) || 0) + item.quantity);
+                    return productQuantities;
+                }, new Map());
+                for (const [productId, quantity] of productQuantityMap.entries()) {
+                    await adjustStock(tx, {
+                        productId,
+                        delta: quantity,
+                        reason: 'ORDER_DELETED',
+                        orderId: order.id,
+                    });
+                }
+            }
+
+            await tx.orderItem.deleteMany({ where: { orderId } });
+            await tx.order.delete({ where: { id: orderId } });
+        });
         return res.json({ message: 'Order deleted successfully' });
     } catch (err) {
+        if (err.code === 'ORDER_NOT_FOUND' || err.code === 'P2025') {
+            return res.status(404).json({ error: 'Order not found' });
+        }
         return serverError(res, err);
     }
 });

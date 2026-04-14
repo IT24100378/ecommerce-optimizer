@@ -8,9 +8,10 @@ const STATUS_COLORS = {
   SHIPPED: 'bg-blue-100 text-blue-800',
   DELIVERED: 'bg-green-100 text-green-800',
   CANCELLED: 'bg-red-100 text-red-800',
+  RETURNED: 'bg-purple-100 text-purple-800',
 };
 
-const STATUSES = ['PENDING', 'SHIPPED', 'DELIVERED', 'CANCELLED'];
+const STATUSES = ['PENDING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'RETURNED'];
 
 function Modal({ title, onClose, children }) {
   return (
