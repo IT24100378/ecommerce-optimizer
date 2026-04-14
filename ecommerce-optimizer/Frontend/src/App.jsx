@@ -21,6 +21,17 @@ const navItems = [
   { id: 'forecasts', label: 'AI Forecasts', icon: '🤖' },
 ];
 
+const dashboardComponents = {
+  dashboard: DashboardOverview,
+  products: ProductDashboard,
+  orders: OrderDashboard,
+  reviews: ReviewDashboard,
+  inventory: InventoryDashboard,
+  promotions: PromotionDashboard,
+  users: UserDashboard,
+  forecasts: ForecastDashboard,
+};
+
 function StatCard({ label, value, icon, color }) {
   return (
     <div className={`bg-white rounded-2xl shadow p-6 flex items-center gap-4 border-l-4 ${color} transition-all duration-200 hover:shadow-lg hover:-translate-y-1`}>
@@ -196,19 +207,8 @@ export default function App() {
     return <AdminLogin onLogin={handleAdminLogin} error={authError} loading={authLoading} />;
   }
 
-  const renderContent = () => {
-    switch (active) {
-      case 'dashboard': return <DashboardOverview />;
-      case 'products': return <ProductDashboard />;
-      case 'orders': return <OrderDashboard />;
-      case 'reviews': return <ReviewDashboard />;
-      case 'inventory': return <InventoryDashboard />;
-      case 'promotions': return <PromotionDashboard />;
-      case 'users': return <UserDashboard />;
-      case 'forecasts': return <ForecastDashboard />;
-      default: return <DashboardOverview />;
-    }
-  };
+  const ActiveDashboard = dashboardComponents[active] || DashboardOverview;
+  const activeNavItem = navItems.find((item) => item.id === active);
 
   return (
     <div className="flex h-screen bg-gray-100 overflow-hidden">
@@ -238,7 +238,6 @@ export default function App() {
                 ${active === item.id
                   ? 'bg-white bg-opacity-20 text-white font-semibold shadow-inner'
                   : 'text-indigo-200 hover:bg-white hover:bg-opacity-10 hover:text-white'}`}
-              style={{ width: sidebarOpen ? 'calc(100% - 8px)' : 'calc(100% - 8px)' }}
             >
               <span className="text-xl flex-shrink-0">{item.icon}</span>
               {sidebarOpen && <span className="text-sm truncate">{item.label}</span>}
@@ -262,7 +261,7 @@ export default function App() {
       <main className="flex-1 overflow-y-auto">
         <header className="bg-white shadow-sm px-8 py-4 flex items-center justify-between sticky top-0 z-10">
           <h2 className="text-lg font-semibold text-gray-700 capitalize">
-            {navItems.find(n => n.id === active)?.icon} {navItems.find(n => n.id === active)?.label}
+            {activeNavItem?.icon} {activeNavItem?.label}
           </h2>
           <div className="flex items-center gap-3">
             <span className="text-sm text-gray-500">{adminUser.email}</span>
@@ -275,7 +274,7 @@ export default function App() {
           </div>
         </header>
         <div className="p-8">
-          {renderContent()}
+          <ActiveDashboard />
         </div>
       </main>
     </div>
