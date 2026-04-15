@@ -32,7 +32,8 @@ model Product {
   name        String
   description String?
   sku         String   @unique
-  category    String
+  categoryId  Int
+  categoryRef Category @relation(fields: [categoryId], references: [id])
   basePrice   Float
   stockQuantity Int
   imageUrl    String?
@@ -44,6 +45,16 @@ model Product {
   orderItems OrderItem[]
   reviews    Review[]
   forecasts  DemandForecast[]
+
+  @@index([categoryId])
+}
+
+model Category {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  createdAt DateTime  @default(now())
+
+  products  Product[]
 }
 
 // 3. Inventory Control (Bandara's Module)

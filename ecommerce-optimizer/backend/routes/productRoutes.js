@@ -2,26 +2,39 @@ const express = require('express');
 const router = express.Router();
 const { authenticateJwt, requireRole } = require('../middleware/auth');
 const { ensureInventoryRecord, mapProductWithInventory } = require('../services/inventoryService');
-const { getAllCategories, normalizeCategoryName } = require('../services/categoryService');
+const { normalizeCategoryName } = require('../services/categoryService');
 
 function serverError(res, err, fallbackMessage) {
     console.error('[products] Route error:', err);
     return res.status(500).json({ error: fallbackMessage || 'Internal server error' });
 }
 
-async function validateCategorySelection(prisma, category) {
+async function resolveCategorySelection(prisma, category) {
     const normalizedCategory = normalizeCategoryName(category);
     if (!normalizedCategory) {
         return { ok: false, error: 'Category is required.' };
     }
 
-    const categories = await getAllCategories(prisma);
-    const isKnownCategory = categories.some((item) => item.toLowerCase() === normalizedCategory.toLowerCase());
-    if (!isKnownCategory) {
+    const existingCategory = await prisma.category.findFirst({
+        where: { name: { equals: normalizedCategory, mode: 'insensitive' } },
+        select: { id: true, name: true },
+    });
+    if (!existingCategory) {
         return { ok: false, error: 'Please select a valid existing category.' };
     }
 
-    return { ok: true, category: normalizedCategory };
+    return { ok: true, categoryId: existingCategory.id, categoryName: existingCategory.name };
+}
+
+function serializeProduct(product) {
+    const mapped = mapProductWithInventory(product);
+    const categoryName = product?.categoryRef?.name || '';
+    return {
+        ...mapped,
+        categoryId: product?.categoryId ?? null,
+        category: categoryName,
+        categoryRef: undefined,
+    };
 }
 
 // productRoutes.js receives prisma via the app's locals
@@ -32,7 +45,7 @@ router.post('/', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, re
     try {
         const { name, description, sku, category, basePrice, imageUrl } = req.body;
         const prisma = req.app.locals.prisma;
-        const categoryCheck = await validateCategorySelection(prisma, category);
+        const categoryCheck = await resolveCategorySelection(prisma, category);
         if (!categoryCheck.ok) {
             return res.status(400).json({ error: categoryCheck.error });
         }
@@ -47,7 +60,7 @@ router.post('/', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, re
                     name,
                     description,
                     sku,
-                    category: categoryCheck.category,
+                    categoryId: categoryCheck.categoryId,
                     basePrice: parsedBasePrice,
                     imageUrl,
                     // Stock is controlled by Inventory; default product stock to 0 for compatibility.
@@ -57,11 +70,11 @@ router.post('/', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, re
             await ensureInventoryRecord(tx, createdProduct.id);
             return tx.product.findUnique({
                 where: { id: createdProduct.id },
-                include: { inventory: true },
+                include: { inventory: true, categoryRef: true },
             });
         });
 
-        res.status(201).json({ message: 'Product created successfully!', product: mapProductWithInventory(newProduct) });
+        res.status(201).json({ message: 'Product created successfully!', product: serializeProduct(newProduct) });
     } catch (error) {
         return serverError(res, error, 'Failed to create product. SKU might already exist.');
     }
@@ -78,11 +91,11 @@ router.get('/:id', async (req, res) => {
 
         const product = await prisma.product.findFirst({
             where: { id, isActive: true },
-            include: { inventory: true },
+            include: { inventory: true, categoryRef: true },
         });
 
         if (!product) return res.status(404).json({ error: 'Product not found.' });
-        res.status(200).json(mapProductWithInventory(product));
+        res.status(200).json(serializeProduct(product));
     } catch (error) {
         return serverError(res, error, 'Failed to fetch product.');
     }
@@ -95,11 +108,11 @@ router.get('/', async (req, res) => {
 
         const products = await prisma.product.findMany({
             where: { isActive: true },
-            include: { inventory: true },
+            include: { inventory: true, categoryRef: true },
             orderBy: { createdAt: 'desc' },
         });
 
-        res.status(200).json(products.map(mapProductWithInventory));
+        res.status(200).json(products.map(serializeProduct));
     } catch (error) {
         return serverError(res, error, 'Failed to fetch products.');
     }
@@ -116,11 +129,11 @@ router.put('/:id', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, 
         const prisma = req.app.locals.prisma;
         const data = { name, description, sku, basePrice, imageUrl };
         if (category !== undefined) {
-            const categoryCheck = await validateCategorySelection(prisma, category);
+            const categoryCheck = await resolveCategorySelection(prisma, category);
             if (!categoryCheck.ok) {
                 return res.status(400).json({ error: categoryCheck.error });
             }
-            data.category = categoryCheck.category;
+            data.categoryId = categoryCheck.categoryId;
         }
         if (basePrice !== undefined) {
             const parsedBasePrice = Number.parseFloat(basePrice);
@@ -134,15 +147,15 @@ router.put('/:id', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, 
             const updated = await tx.product.update({
                 where: { id },
                 data,
-                include: { inventory: true },
+                include: { inventory: true, categoryRef: true },
             });
             if (!updated.inventory) {
                 await ensureInventoryRecord(tx, updated.id);
             }
-            return tx.product.findUnique({ where: { id: updated.id }, include: { inventory: true } });
+            return tx.product.findUnique({ where: { id: updated.id }, include: { inventory: true, categoryRef: true } });
         });
 
-        res.status(200).json({ message: 'Product updated successfully!', product: mapProductWithInventory(updatedProduct) });
+        res.status(200).json({ message: 'Product updated successfully!', product: serializeProduct(updatedProduct) });
     } catch (error) {
         return serverError(res, error, 'Failed to update product.');
     }

@@ -29,15 +29,23 @@ function parseIsoDate(value) {
     return startOfUtcDay(parsed);
 }
 
+function toProductWithCategoryName(product) {
+    return {
+        ...product,
+        category: product?.categoryRef?.name || '',
+        categoryRef: undefined,
+    };
+}
+
 // GET / - list all forecasts with product info
 router.get('/', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, res) => {
     const prisma = req.app.locals.prisma;
     try {
         const forecasts = await prisma.demandForecast.findMany({
-            include: { product: true },
+            include: { product: { include: { categoryRef: true } } },
             orderBy: { generatedAt: 'desc' },
         });
-        res.json(forecasts);
+        res.json(forecasts.map((forecast) => ({ ...forecast, product: toProductWithCategoryName(forecast.product) })));
     } catch (err) {
         return serverError(res, err);
     }
@@ -49,10 +57,10 @@ router.get('/product/:productId', authenticateJwt, requireRole('ADMIN', 'VENDOR'
     try {
         const forecasts = await prisma.demandForecast.findMany({
             where: { productId: parseInt(req.params.productId) },
-            include: { product: true },
+            include: { product: { include: { categoryRef: true } } },
             orderBy: { forecastForDate: 'asc' },
         });
-        res.json(forecasts);
+        res.json(forecasts.map((forecast) => ({ ...forecast, product: toProductWithCategoryName(forecast.product) })));
     } catch (err) {
         return serverError(res, err);
     }
@@ -72,9 +80,9 @@ router.post('/', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, re
                 predictedDemand: parseInt(predictedDemand),
                 forecastForDate: new Date(forecastForDate),
             },
-            include: { product: true },
+            include: { product: { include: { categoryRef: true } } },
         });
-        res.status(201).json(forecast);
+        res.status(201).json({ ...forecast, product: toProductWithCategoryName(forecast.product) });
     } catch (err) {
         return serverError(res, err);
     }
@@ -136,7 +144,7 @@ router.post('/predict', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (
     try {
         const product = await prisma.product.findUnique({
             where: { id: productId },
-            include: { inventory: true },
+            include: { inventory: true, categoryRef: true },
         });
         if (!product || !product.isActive) {
             return res.status(404).json({ error: 'Product not found or inactive' });
@@ -218,7 +226,7 @@ router.post('/predict', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (
                     lte: lastDate,
                 },
             },
-            include: { product: true },
+            include: { product: { include: { categoryRef: true } } },
             orderBy: { forecastForDate: 'asc' },
         });
 
@@ -228,7 +236,7 @@ router.post('/predict', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (
         const recommendedRestock = Math.max(0, totalPredictedDemand - currentStock);
 
         return res.json({
-            product: { id: product.id, name: product.name, sku: product.sku, category: product.category },
+            product: { id: product.id, name: product.name, sku: product.sku, category: product.categoryRef?.name || '' },
             days: totalDays,
             startDate: firstDate.toISOString().slice(0, 10),
             endDate: (resolvedEndDate || lastDate).toISOString().slice(0, 10),
@@ -237,7 +245,10 @@ router.post('/predict', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (
                 lowStockThreshold,
                 recommendedRestock,
             },
-            predictions: savedForecasts,
+            predictions: savedForecasts.map((forecast) => ({
+                ...forecast,
+                product: toProductWithCategoryName(forecast.product),
+            })),
         });
     } catch (err) {
         return serverError(res, err);
