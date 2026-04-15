@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api/products';
+const API_BASE = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
+const API_URL = `${API_BASE}/api/products`;
 
 const EMPTY_FORM = {
     name: '',
@@ -12,7 +13,7 @@ const EMPTY_FORM = {
     imageUrl: '',
 };
 
-export default function ProductForm({ initialData, onSuccess, onCancel }) {
+export default function ProductForm({ initialData, onSuccess, onCancel, categories = [] }) {
     const [form, setForm] = useState(EMPTY_FORM);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
@@ -32,6 +33,12 @@ export default function ProductForm({ initialData, onSuccess, onCancel }) {
             setForm(EMPTY_FORM);
         }
     }, [initialData]);
+
+    useEffect(() => {
+        if (!initialData && !form.category && categories.length > 0) {
+            setForm((prev) => ({ ...prev, category: categories[0] }));
+        }
+    }, [categories, form.category, initialData]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -72,10 +79,13 @@ export default function ProductForm({ initialData, onSuccess, onCancel }) {
     const fields = [
         { id: 'name', label: 'Product Name', type: 'text', required: true, placeholder: 'e.g. Wireless Headphones' },
         { id: 'sku', label: 'SKU', type: 'text', required: true, placeholder: 'e.g. WH-1000XM5' },
-        { id: 'category', label: 'Category', type: 'text', required: true, placeholder: 'e.g. Electronics' },
         { id: 'basePrice', label: 'Base Price ($)', type: 'number', required: true, placeholder: '0.00', step: '0.01', min: '0' },
         { id: 'imageUrl', label: 'Image URL', type: 'url', required: false, placeholder: 'https://example.com/image.jpg' },
     ];
+
+    const categoryOptions = form.category && !categories.includes(form.category)
+        ? [form.category, ...categories]
+        : categories;
 
     return (
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
@@ -104,6 +114,34 @@ export default function ProductForm({ initialData, onSuccess, onCancel }) {
                     />
                 </div>
             ))}
+
+            <div>
+                <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
+                    Category <span className="text-red-500">*</span>
+                </label>
+                <select
+                    id="category"
+                    name="category"
+                    required
+                    value={form.category}
+                    onChange={handleChange}
+                    disabled={categoryOptions.length === 0}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-100 disabled:text-gray-500"
+                >
+                    {categoryOptions.length === 0 ? (
+                        <option value="">No categories available</option>
+                    ) : (
+                        categoryOptions.map((categoryName) => (
+                            <option key={categoryName} value={categoryName}>
+                                {categoryName}
+                            </option>
+                        ))
+                    )}
+                </select>
+                {categoryOptions.length === 0 && (
+                    <p className="text-xs text-amber-600 mt-1">Create a category first, then add products.</p>
+                )}
+            </div>
 
             <p className="text-xs text-gray-500">
                 Stock is managed in the Inventory module. New products start at stock 0.
@@ -135,7 +173,7 @@ export default function ProductForm({ initialData, onSuccess, onCancel }) {
                 </button>
                 <button
                     type="submit"
-                    disabled={submitting}
+                    disabled={submitting || categoryOptions.length === 0}
                     className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50"
                 >
                     {submitting ? 'Saving…' : initialData ? 'Update Product' : 'Create Product'}

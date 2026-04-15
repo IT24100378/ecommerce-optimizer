@@ -1301,6 +1301,7 @@ export default function StoreFront() {
   const [stockNotice, setStockNotice] = useState('');
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [activePromotions, setActivePromotions] = useState([]);
+  const [catalogCategories, setCatalogCategories] = useState([]);
 
   const { items: cartItems, add, remove, update, clear, total, count } = useCart();
 
@@ -1308,10 +1309,15 @@ export default function StoreFront() {
   const [priceLimit, setPriceLimit] = useState(0);
 
   useEffect(() => {
-    axios.get(`${API}/api/products`)
-      .then(({ data }) => {
-        setProducts(data);
-        const max = data.reduce((m, p) => Math.max(m, p.basePrice), 0);
+    Promise.all([
+      axios.get(`${API}/api/products`),
+      axios.get(`${API}/api/categories`).catch(() => ({ data: [] })),
+    ])
+      .then(([productsResponse, categoriesResponse]) => {
+        const productData = productsResponse.data;
+        setProducts(productData);
+        setCatalogCategories(Array.isArray(categoriesResponse.data) ? categoriesResponse.data : []);
+        const max = productData.reduce((m, p) => Math.max(m, p.basePrice), 0);
         setPriceLimit(Math.ceil(max) || 10000);
       })
       .catch(() => setError('Failed to load products. Please try again later.'))
@@ -1339,7 +1345,16 @@ export default function StoreFront() {
     };
   }, []);
 
-  const categories = [...new Set(products.map(p => p.category).filter(Boolean))].sort();
+  const categories = useMemo(() => {
+    const fromProducts = products.map((p) => p.category).filter(Boolean);
+    return [...new Set([...catalogCategories, ...fromProducts])].sort((a, b) => a.localeCompare(b));
+  }, [catalogCategories, products]);
+
+  useEffect(() => {
+    if (activeCategory !== 'All' && !categories.includes(activeCategory)) {
+      setActiveCategory('All');
+    }
+  }, [activeCategory, categories]);
 
   const filtered = products
     .filter(p => activeCategory === 'All' || p.category === activeCategory)

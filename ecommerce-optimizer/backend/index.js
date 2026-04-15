@@ -264,8 +264,10 @@ const inventoryRoutes = require('./routes/inventoryRoutes');
 const promotionRoutes = require('./routes/promotionRoutes');
 const userRoutes = require('./routes/userRoutes');
 const forecastRoutes = require('./routes/forecastRoutes');
+const categoryRoutes = require('./routes/categoryRoutes');
 
 app.use('/api/products', productRoutes);
+app.use('/api/categories', categoryRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/inventory', inventoryRoutes);
