@@ -40,7 +40,7 @@ function useCart() {
 
   const clear = useCallback(() => setItems([]), []);
 
-  const total = items.reduce((s, i) => s + i.basePrice * i.qty, 0);
+  const total = items.reduce((s, i) => s + (Number(i.effectivePrice ?? i.basePrice ?? 0) * i.qty), 0);
   const count = items.reduce((s, i) => s + i.qty, 0);
 
   return { items, add, remove, update, clear, total, count };
@@ -397,6 +397,9 @@ function ProductCard({ product, onAdd, onView, added, disableReveal = false }) {
   const ref = useRef(null);
   const availableStock = Number(product.availableStock ?? product.stockQuantity ?? 0);
   const outOfStock = availableStock <= 0;
+  const basePrice = Number(product.basePrice || 0);
+  const effectivePrice = Number(product.effectivePrice ?? product.basePrice ?? 0);
+  const hasDiscount = effectivePrice < basePrice;
 
   useEffect(() => {
     if (disableReveal) {
@@ -460,7 +463,12 @@ function ProductCard({ product, onAdd, onView, added, disableReveal = false }) {
           {product.name}
         </h3>
         <div className="mt-auto flex items-center justify-between">
-          <span className="text-cyan-400 font-black text-xl">{formatPrice(product.basePrice)}</span>
+          <div className="flex flex-col">
+            <span className="text-cyan-400 font-black text-xl">{formatPrice(effectivePrice)}</span>
+            {hasDiscount && (
+              <span className="text-xs text-gray-500 line-through">{formatPrice(basePrice)}</span>
+            )}
+          </div>
           <button
             onClick={(e) => { e.stopPropagation(); onAdd(product); }}
             disabled={outOfStock}
@@ -696,7 +704,7 @@ function CartSidebar({ open, onClose, items, onUpdate, onRemove, onCheckout, tot
                 )}
                 <div className="flex-1 min-w-0">
                   <p className="text-white text-sm font-medium truncate">{item.name}</p>
-                  <p className="text-cyan-400 text-sm font-bold">{formatPrice(item.basePrice)}</p>
+                  <p className="text-cyan-400 text-sm font-bold">{formatPrice(item.effectivePrice ?? item.basePrice)}</p>
                   <div className="flex items-center gap-2 mt-2">
                     <button onClick={() => onUpdate(item.id, item.qty - 1)} className="w-7 h-7 bg-gray-700 hover:bg-gray-600 text-white rounded-md flex items-center justify-center transition-colors">−</button>
                     <span className="text-white font-semibold text-sm w-6 text-center">{item.qty}</span>
@@ -769,7 +777,15 @@ function CheckoutModal({ open, onClose, items, total, onSuccess, currentUser, on
     if (!form.promoCode.trim()) return;
     setApplyingPromo(true); setPromoError(''); setPromoResult(null);
     try {
-      const { data } = await axios.post(`${API}/api/promotions/apply`, { promoCode: form.promoCode.trim(), originalPrice: total });
+        const { data } = await axios.post(`${API}/api/promotions/apply`, {
+          promoCode: form.promoCode.trim(),
+          originalPrice: total,
+          items: items.map((item) => ({
+            productId: item.id,
+            quantity: item.qty,
+            price: Number(item.effectivePrice ?? item.basePrice ?? 0),
+          })),
+        });
       setPromoResult(data);
     } catch (err) {
       setPromoError(err.response?.data?.error || 'Invalid promo code');
@@ -793,7 +809,7 @@ function CheckoutModal({ open, onClose, items, total, onSuccess, currentUser, on
         items: items.map(item => ({
           productId: item.id,
           quantity: item.qty,
-          price: item.basePrice,
+          price: Number(item.effectivePrice ?? item.basePrice ?? 0),
         })),
       });
       setStep(3);
@@ -838,7 +854,7 @@ function CheckoutModal({ open, onClose, items, total, onSuccess, currentUser, on
                 {items.map(i => (
                   <div key={i.id} className="flex justify-between text-sm">
                     <span className="text-gray-300">{i.name} × {i.qty}</span>
-                    <span className="text-white font-medium">{formatPrice(i.basePrice * i.qty)}</span>
+                    <span className="text-white font-medium">{formatPrice((Number(i.effectivePrice ?? i.basePrice ?? 0)) * i.qty)}</span>
                   </div>
                 ))}
               </div>
@@ -1386,6 +1402,11 @@ export default function StoreFront() {
       .filter(row => row.products.length > 0);
   }, [featuredCategories, filtered]);
 
+  const exclusiveOfferProducts = useMemo(() => (
+    products.filter((product) => product.isOnPromotion)
+  ), [products]);
+  const isAllCategoryView = activeCategory === 'All';
+
   const handleAdd = (product) => {
     const availableStock = Number(product.availableStock ?? product.stockQuantity ?? 0);
     const currentInCart = cartItems.find(i => i.id === product.id);
@@ -1491,7 +1512,37 @@ export default function StoreFront() {
           <>
             <CategoryBar categories={categories} active={activeCategory} onSelect={setActiveCategory} topOffset={NAVBAR_HEIGHT} />
 
-            <HeroBanner promotions={activePromotions} />
+            <div
+              className={`transition-all duration-500 ease-out ${
+                isAllCategoryView
+                  ? 'opacity-100 translate-y-0 max-h-[1200px]'
+                  : 'opacity-0 -translate-y-2 max-h-0 overflow-hidden pointer-events-none'
+              }`}
+            >
+              <HeroBanner promotions={activePromotions} />
+            </div>
+
+            <div
+              className={`transition-all duration-500 ease-out ${
+                isAllCategoryView && exclusiveOfferProducts.length > 0
+                  ? 'opacity-100 translate-y-0 max-h-[900px]'
+                  : 'opacity-0 -translate-y-2 max-h-0 overflow-hidden pointer-events-none'
+              }`}
+            >
+              {exclusiveOfferProducts.length > 0 && (
+                <section className="w-full bg-gray-950">
+                  <div className="w-full px-4 sm:px-6 pt-8 pb-2">
+                    <FeaturedCyclingRow
+                      title="Exclusive Offer"
+                      products={exclusiveOfferProducts}
+                      onAdd={handleAdd}
+                      onView={setSelectedProduct}
+                      recentlyAdded={recentlyAdded}
+                    />
+                  </div>
+                </section>
+              )}
+            </div>
 
             {/* Products section */}
             <section id="products-section" className="w-full bg-gray-950">

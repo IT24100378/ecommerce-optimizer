@@ -3,6 +3,7 @@ const router = express.Router();
 const { authenticateJwt, requireRole } = require('../middleware/auth');
 const { ensureInventoryRecord, mapProductWithInventory } = require('../services/inventoryService');
 const { normalizeCategoryName } = require('../services/categoryService');
+const { applyNativePromotionPricing } = require('../services/promotionService');
 
 function serverError(res, err, fallbackMessage) {
     console.error('[products] Route error:', err);
@@ -29,10 +30,17 @@ async function resolveCategorySelection(prisma, category) {
 function serializeProduct(product) {
     const mapped = mapProductWithInventory(product);
     const categoryName = product?.categoryRef?.name || '';
+    const effectivePrice = Number(product?.effectivePrice ?? mapped.basePrice);
     return {
         ...mapped,
         categoryId: product?.categoryId ?? null,
         category: categoryName,
+        effectivePrice,
+        isOnPromotion: Boolean(product?.isOnPromotion),
+        nativePromotionType: product?.nativePromotionType || null,
+        nativePromotionDiscountPercentage: product?.nativePromotionDiscountPercentage ?? null,
+        nativePromotionId: product?.nativePromotionId || null,
+        nativePromotionName: product?.nativePromotionName || null,
         categoryRef: undefined,
     };
 }
@@ -74,7 +82,8 @@ router.post('/', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, re
             });
         });
 
-        res.status(201).json({ message: 'Product created successfully!', product: serializeProduct(newProduct) });
+        const [pricedProduct] = await applyNativePromotionPricing(prisma, [newProduct]);
+        res.status(201).json({ message: 'Product created successfully!', product: serializeProduct(pricedProduct) });
     } catch (error) {
         return serverError(res, error, 'Failed to create product. SKU might already exist.');
     }
@@ -95,7 +104,8 @@ router.get('/:id', async (req, res) => {
         });
 
         if (!product) return res.status(404).json({ error: 'Product not found.' });
-        res.status(200).json(serializeProduct(product));
+        const [pricedProduct] = await applyNativePromotionPricing(prisma, [product]);
+        res.status(200).json(serializeProduct(pricedProduct));
     } catch (error) {
         return serverError(res, error, 'Failed to fetch product.');
     }
@@ -112,7 +122,8 @@ router.get('/', async (req, res) => {
             orderBy: { createdAt: 'desc' },
         });
 
-        res.status(200).json(products.map(serializeProduct));
+        const pricedProducts = await applyNativePromotionPricing(prisma, products);
+        res.status(200).json(pricedProducts.map(serializeProduct));
     } catch (error) {
         return serverError(res, error, 'Failed to fetch products.');
     }
@@ -155,7 +166,8 @@ router.put('/:id', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, 
             return tx.product.findUnique({ where: { id: updated.id }, include: { inventory: true, categoryRef: true } });
         });
 
-        res.status(200).json({ message: 'Product updated successfully!', product: serializeProduct(updatedProduct) });
+        const [pricedProduct] = await applyNativePromotionPricing(prisma, [updatedProduct]);
+        res.status(200).json({ message: 'Product updated successfully!', product: serializeProduct(pricedProduct) });
     } catch (error) {
         return serverError(res, error, 'Failed to update product.');
     }

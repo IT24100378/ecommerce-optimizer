@@ -56,6 +56,9 @@ export default function ProductPage({ product, user, onAddToCart, added, onBack,
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const availableStock = Number(product.availableStock ?? product.stockQuantity ?? 0);
   const outOfStock = availableStock <= 0;
+  const basePrice = Number(product.basePrice ?? 0);
+  const effectivePrice = Number(product.effectivePrice ?? product.basePrice ?? 0);
+  const hasDiscount = effectivePrice < basePrice;
 
   const fetchReviews = useCallback(async () => {
     setLoadingReviews(true);
@@ -228,8 +231,15 @@ export default function ProductPage({ product, user, onAddToCart, added, onBack,
               </div>
             )}
 
-            <div className="text-4xl font-black text-cyan-400 mb-6">
-              {formatPrice(product.basePrice)}
+            <div className="mb-6">
+              <div className="text-4xl font-black text-cyan-400">
+                {formatPrice(effectivePrice)}
+              </div>
+              {hasDiscount && (
+                <div className="text-sm text-gray-500 line-through mt-1">
+                  {formatPrice(basePrice)}
+                </div>
+              )}
             </div>
 
             {product.description && (

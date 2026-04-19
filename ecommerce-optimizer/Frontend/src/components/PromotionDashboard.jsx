@@ -1,8 +1,23 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 
-const API = 'http://localhost:5000';
-const emptyForm = { campaignName: '', promoCode: '', discountPercentage: '', startDate: '', endDate: '', isActive: true };
+const API = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
+const PROMOTION_TYPES = [
+  { value: 'EVENT', label: 'Event Promotion' },
+  { value: 'CATEGORY', label: 'Product Category Promotion' },
+  { value: 'PRODUCT', label: 'Product Promotion' },
+];
+const emptyForm = {
+  campaignName: '',
+  type: '',
+  promoCode: '',
+  discountPercentage: '',
+  startDate: '',
+  endDate: '',
+  categoryId: '',
+  productId: '',
+  isActive: true,
+};
 
 function Modal({ title, onClose, children }) {
   return (
@@ -20,28 +35,219 @@ function Modal({ title, onClose, children }) {
   );
 }
 
-function PromoForm({ data, setData, onSubmit, onCancel, label, saving }) {
+function PromoForm({ data, setData, onSubmit, onCancel, onPreview, label, saving }) {
+  const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [metaError, setMetaError] = useState('');
+  const [previewing, setPreviewing] = useState(false);
+  const [previewState, setPreviewState] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+    Promise.all([
+      axios.get(`${API}/api/products`).catch(() => ({ data: [] })),
+      axios.get(`${API}/api/categories`).catch(() => ({ data: [] })),
+    ]).then(([productsRes, categoriesRes]) => {
+      if (!mounted) return;
+      const productList = Array.isArray(productsRes.data) ? productsRes.data : [];
+      setProducts(productList);
+      const categoryNames = Array.isArray(categoriesRes.data) ? categoriesRes.data : [];
+      setCategories(categoryNames);
+    }).catch(() => {
+      if (mounted) setMetaError('Failed to load products/categories for promotion targeting.');
+    });
+
+    return () => { mounted = false; };
+  }, []);
+
+  const selectedType = data.type;
+
+  const validateClient = () => {
+    const discount = Number.parseFloat(data.discountPercentage);
+    if (!Number.isFinite(discount) || discount <= 0) {
+      return 'Discount percentage must be positive.';
+    }
+
+    const start = new Date(data.startDate);
+    const end = new Date(data.endDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return 'Start and end dates are required.';
+    }
+    if (end < start) {
+      return 'End date must be after or equal to start date.';
+    }
+
+    if (!selectedType) {
+      return 'Promotion type is required.';
+    }
+
+    if (selectedType === 'EVENT' && !String(data.promoCode || '').trim()) {
+      return 'Promo code is required for Event promotions.';
+    }
+    if (selectedType === 'CATEGORY' && !data.categoryId) {
+      return 'Category is required for Category promotions.';
+    }
+    if (selectedType === 'PRODUCT' && !data.productId) {
+      return 'Product is required for Product promotions.';
+    }
+
+    return '';
+  };
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    const validationError = validateClient();
+    if (validationError) {
+      setMetaError(validationError);
+      return;
+    }
+    setMetaError('');
+    onSubmit(event);
+  };
+
+  const handlePreview = async () => {
+    const validationError = validateClient();
+    if (validationError) {
+      setMetaError(validationError);
+      setPreviewState(null);
+      return;
+    }
+
+    setMetaError('');
+    setPreviewing(true);
+    try {
+      const preview = await onPreview(data);
+      setPreviewState(preview);
+    } catch (error) {
+      setPreviewState({ ok: false, message: error.message || 'Failed to check conflicts.' });
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
   return (
-    <form onSubmit={onSubmit} className="space-y-4">
-      {[['campaignName', 'Campaign Name', 'text'], ['promoCode', 'Promo Code', 'text'], ['discountPercentage', 'Discount %', 'number']].map(([f, l, t]) => (
-        <div key={f}>
-          <label className="block text-sm font-medium text-gray-700 mb-1">{l}</label>
-          <input type={t} required value={data[f]} onChange={e => setData(p => ({ ...p, [f]: e.target.value }))}
-            className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {metaError && <p className="text-sm text-red-600">{metaError}</p>}
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Promotion Category</label>
+        <select
+          required
+          value={data.type}
+          onChange={(e) => setData((prev) => ({
+            ...prev,
+            type: e.target.value,
+            promoCode: e.target.value === 'EVENT' ? prev.promoCode : '',
+            categoryId: e.target.value === 'CATEGORY' ? prev.categoryId : '',
+            productId: e.target.value === 'PRODUCT' ? prev.productId : '',
+          }))}
+          className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+        >
+          <option value="">Select promotion category</option>
+          {PROMOTION_TYPES.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Campaign Name</label>
+        <input
+          type="text"
+          required
+          value={data.campaignName}
+          onChange={(e) => setData((prev) => ({ ...prev, campaignName: e.target.value }))}
+          className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+        />
+      </div>
+
+      {selectedType === 'EVENT' && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Promo Code</label>
+          <input
+            type="text"
+            required
+            value={data.promoCode}
+            onChange={(e) => setData((prev) => ({ ...prev, promoCode: e.target.value.toUpperCase() }))}
+            className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          />
+          <p className="text-xs text-gray-500 mt-1">Only Event promotions support promo-code discounts at checkout.</p>
         </div>
-      ))}
+      )}
+
+      {selectedType === 'CATEGORY' && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Product Category</label>
+          <select
+            required
+            value={data.categoryId}
+            onChange={(e) => setData((prev) => ({ ...prev, categoryId: e.target.value }))}
+            className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          >
+            <option value="">Select category</option>
+            {categories.map((categoryName) => (
+              <option key={categoryName} value={categoryName}>{categoryName}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {selectedType === 'PRODUCT' && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Product</label>
+          <select
+            required
+            value={data.productId}
+            onChange={(e) => setData((prev) => ({ ...prev, productId: e.target.value }))}
+            className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          >
+            <option value="">Select product</option>
+            {products.map((product) => (
+              <option key={product.id} value={product.id}>{product.name} ({product.sku})</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Discount %</label>
+        <input
+          type="number"
+          step="0.01"
+          min="0.01"
+          required
+          value={data.discountPercentage}
+          onChange={(e) => setData((prev) => ({ ...prev, discountPercentage: e.target.value }))}
+          className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+        />
+      </div>
+
       {[['startDate', 'Start Date'], ['endDate', 'End Date']].map(([f, l]) => (
         <div key={f}>
           <label className="block text-sm font-medium text-gray-700 mb-1">{l}</label>
-          <input type="datetime-local" required value={data[f]} onChange={e => setData(p => ({ ...p, [f]: e.target.value }))}
-            className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+          <input
+            type="datetime-local"
+            required
+            value={data[f]}
+            onChange={(e) => setData((prev) => ({ ...prev, [f]: e.target.value }))}
+            className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          />
         </div>
       ))}
+
       <label className="flex items-center gap-2 text-sm cursor-pointer">
         <input type="checkbox" checked={data.isActive} onChange={e => setData(p => ({ ...p, isActive: e.target.checked }))} />
         Active
       </label>
       <div className="flex gap-3 pt-2">
+        <button
+          type="button"
+          onClick={handlePreview}
+          disabled={saving || previewing}
+          className="flex-1 border border-indigo-300 text-indigo-700 py-2 rounded-lg font-medium hover:bg-indigo-50 transition-all duration-200 disabled:opacity-50"
+        >
+          {previewing ? 'Checking...' : 'Check Conflicts'}
+        </button>
         <button type="submit" disabled={saving}
           className="flex-1 bg-indigo-600 text-white py-2 rounded-lg font-medium hover:bg-indigo-700 transition-all duration-200 disabled:opacity-50">
           {saving ? 'Saving…' : label}
@@ -49,6 +255,25 @@ function PromoForm({ data, setData, onSubmit, onCancel, label, saving }) {
         <button type="button" onClick={onCancel}
           className="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg font-medium hover:bg-gray-50 transition-all duration-200">Cancel</button>
       </div>
+      {previewState && (
+        <div className={`rounded-lg border p-3 text-xs ${previewState.ok ? 'border-green-200 bg-green-50 text-green-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+          <p className="font-semibold">{previewState.ok ? 'No Conflicts' : 'Blocking Promotion Detected'}</p>
+          <p className="mt-1">{previewState.message}</p>
+          {!previewState.ok && previewState.conflict && (
+            <div className="mt-2 space-y-1">
+              <p><span className="font-semibold">Campaign:</span> {previewState.conflict.campaignName}</p>
+              <p><span className="font-semibold">Type:</span> {previewState.conflict.type}</p>
+              <p><span className="font-semibold">Target:</span> {previewState.conflict.target || 'N/A'}</p>
+              <p>
+                <span className="font-semibold">Range:</span>{' '}
+                {previewState.conflict.startDate ? new Date(previewState.conflict.startDate).toLocaleString() : '-'}{' '}
+                to{' '}
+                {previewState.conflict.endDate ? new Date(previewState.conflict.endDate).toLocaleString() : '-'}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </form>
   );
 }
@@ -89,7 +314,34 @@ export default function PromotionDashboard() {
     e.preventDefault();
     setSaving(true);
     try {
-      await axios.post(`${API}/api/promotions`, form);
+      const previewRes = await axios.post(`${API}/api/promotions/preview`, {
+        campaignName: form.campaignName,
+        type: form.type,
+        promoCode: form.type === 'EVENT' ? form.promoCode : null,
+        discountPercentage: form.discountPercentage,
+        startDate: form.startDate,
+        endDate: form.endDate,
+        categoryName: form.type === 'CATEGORY' ? form.categoryId : null,
+        productId: form.type === 'PRODUCT' ? Number(form.productId) : null,
+        isActive: form.isActive,
+      });
+      if (!previewRes.data?.ok) {
+        alert(previewRes.data?.message || 'This promotion overlaps with an existing promotion.');
+        return;
+      }
+
+      await axios.post(`${API}/api/promotions`, {
+        campaignName: form.campaignName,
+        type: form.type,
+        promoCode: form.type === 'EVENT' ? form.promoCode : null,
+        discountPercentage: form.discountPercentage,
+        startDate: form.startDate,
+        endDate: form.endDate,
+        categoryName: form.type === 'CATEGORY' ? form.categoryId : null,
+        categoryId: null,
+        productId: form.type === 'PRODUCT' ? Number(form.productId) : null,
+        isActive: form.isActive,
+      });
       setShowCreate(false);
       setForm(emptyForm);
       fetchPromotions();
@@ -104,7 +356,35 @@ export default function PromotionDashboard() {
     e.preventDefault();
     setSaving(true);
     try {
-      await axios.put(`${API}/api/promotions/${editPromo.id}`, editForm);
+      const previewRes = await axios.post(`${API}/api/promotions/preview`, {
+        promotionId: editPromo.id,
+        campaignName: editForm.campaignName,
+        type: editForm.type,
+        promoCode: editForm.type === 'EVENT' ? editForm.promoCode : null,
+        discountPercentage: editForm.discountPercentage,
+        startDate: editForm.startDate,
+        endDate: editForm.endDate,
+        categoryName: editForm.type === 'CATEGORY' ? editForm.categoryId : null,
+        productId: editForm.type === 'PRODUCT' ? Number(editForm.productId) : null,
+        isActive: editForm.isActive,
+      });
+      if (!previewRes.data?.ok) {
+        alert(previewRes.data?.message || 'This promotion overlaps with an existing promotion.');
+        return;
+      }
+
+      await axios.put(`${API}/api/promotions/${editPromo.id}`, {
+        campaignName: editForm.campaignName,
+        type: editForm.type,
+        promoCode: editForm.type === 'EVENT' ? editForm.promoCode : null,
+        discountPercentage: editForm.discountPercentage,
+        startDate: editForm.startDate,
+        endDate: editForm.endDate,
+        categoryName: editForm.type === 'CATEGORY' ? editForm.categoryId : null,
+        categoryId: null,
+        productId: editForm.type === 'PRODUCT' ? Number(editForm.productId) : null,
+        isActive: editForm.isActive,
+      });
       setEditPromo(null);
       fetchPromotions();
     } catch (e) {
@@ -134,6 +414,39 @@ export default function PromotionDashboard() {
     } catch (e) {
       setTestError(e.response?.data?.error || 'Invalid promo code');
     }
+  };
+
+  const previewPayloadFromForm = (promoForm, promotionId = null) => ({
+    promotionId,
+    campaignName: promoForm.campaignName,
+    type: promoForm.type,
+    promoCode: promoForm.type === 'EVENT' ? promoForm.promoCode : null,
+    discountPercentage: promoForm.discountPercentage,
+    startDate: promoForm.startDate,
+    endDate: promoForm.endDate,
+    categoryName: promoForm.type === 'CATEGORY' ? promoForm.categoryId : null,
+    productId: promoForm.type === 'PRODUCT' ? Number(promoForm.productId) : null,
+    isActive: promoForm.isActive,
+  });
+
+  const handlePreviewCreate = async (promoForm) => {
+    const { data } = await axios.post(`${API}/api/promotions/preview`, previewPayloadFromForm(promoForm));
+    return {
+      ok: Boolean(data?.ok),
+      message: data?.message || (data?.ok ? 'No overlap detected.' : 'Overlap found.'),
+      conflict: data?.conflict || null,
+      reason: data?.reason || null,
+    };
+  };
+
+  const handlePreviewEdit = async (promoForm) => {
+    const { data } = await axios.post(`${API}/api/promotions/preview`, previewPayloadFromForm(promoForm, editPromo?.id));
+    return {
+      ok: Boolean(data?.ok),
+      message: data?.message || (data?.ok ? 'No overlap detected.' : 'Overlap found.'),
+      conflict: data?.conflict || null,
+      reason: data?.reason || null,
+    };
   };
 
   return (
@@ -190,7 +503,16 @@ export default function PromotionDashboard() {
                   </span>
                 </div>
                 <div className="space-y-1 text-sm text-gray-600 mb-4">
-                  <p>Code: <span className="font-mono bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded">{promo.promoCode}</span></p>
+                  <p>Type: <strong>{promo.type}</strong></p>
+                  {promo.type === 'EVENT' && promo.promoCode && (
+                    <p>Code: <span className="font-mono bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded">{promo.promoCode}</span></p>
+                  )}
+                  {promo.type === 'CATEGORY' && promo.categoryRef?.name && (
+                    <p>Category: <strong>{promo.categoryRef.name}</strong></p>
+                  )}
+                  {promo.type === 'PRODUCT' && promo.productRef?.name && (
+                    <p>Product: <strong>{promo.productRef.name}</strong></p>
+                  )}
                   <p>Discount: <strong className="text-green-600">{promo.discountPercentage}% off</strong></p>
                   <p className="text-xs text-gray-400">{new Date(promo.startDate).toLocaleDateString()} – {new Date(promo.endDate).toLocaleDateString()}</p>
                 </div>
@@ -198,10 +520,14 @@ export default function PromotionDashboard() {
                   <button onClick={() => {
                     setEditPromo(promo);
                     setEditForm({
-                      campaignName: promo.campaignName, promoCode: promo.promoCode,
+                      campaignName: promo.campaignName,
+                      type: promo.type,
+                      promoCode: promo.promoCode || '',
                       discountPercentage: promo.discountPercentage,
                       startDate: new Date(promo.startDate).toISOString().slice(0, 16),
                       endDate: new Date(promo.endDate).toISOString().slice(0, 16),
+                      categoryId: promo.categoryRef?.name || '',
+                      productId: promo.productRef?.id ? String(promo.productRef.id) : '',
                       isActive: promo.isActive,
                     });
                   }}
@@ -217,13 +543,29 @@ export default function PromotionDashboard() {
 
       {showCreate && (
         <Modal title="New Promotion" onClose={() => setShowCreate(false)}>
-          <PromoForm data={form} setData={setForm} onSubmit={handleCreate} onCancel={() => setShowCreate(false)} label="Create Promotion" saving={saving} />
+          <PromoForm
+            data={form}
+            setData={setForm}
+            onSubmit={handleCreate}
+            onPreview={handlePreviewCreate}
+            onCancel={() => setShowCreate(false)}
+            label="Create Promotion"
+            saving={saving}
+          />
         </Modal>
       )}
 
       {editPromo && (
         <Modal title={`Edit: ${editPromo.campaignName}`} onClose={() => setEditPromo(null)}>
-          <PromoForm data={editForm} setData={setEditForm} onSubmit={handleEdit} onCancel={() => setEditPromo(null)} label="Update Promotion" saving={saving} />
+          <PromoForm
+            data={editForm}
+            setData={setEditForm}
+            onSubmit={handleEdit}
+            onPreview={handlePreviewEdit}
+            onCancel={() => setEditPromo(null)}
+            label="Update Promotion"
+            saving={saving}
+          />
         </Modal>
       )}
 

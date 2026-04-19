@@ -45,6 +45,7 @@ model Product {
   orderItems OrderItem[]
   reviews    Review[]
   forecasts  DemandForecast[]
+  productPromotions Promotion[] @relation("ProductPromotion")
 
   @@index([categoryId])
 }
@@ -55,6 +56,13 @@ model Category {
   createdAt DateTime  @default(now())
 
   products  Product[]
+  categoryPromotions Promotion[] @relation("CategoryPromotion")
+}
+
+enum PromotionType {
+  EVENT
+  CATEGORY
+  PRODUCT
 }
 
 // 3. Inventory Control (Bandara's Module)
@@ -126,11 +134,20 @@ model Review {
 model Promotion {
   id                 Int      @id @default(autoincrement())
   campaignName       String
-  promoCode          String   @unique
+  type               PromotionType @default(EVENT)
+  promoCode          String?  @unique
   discountPercentage Float
   startDate          DateTime
   endDate            DateTime
   isActive           Boolean  @default(true)
+  categoryId         Int?
+  categoryRef        Category? @relation("CategoryPromotion", fields: [categoryId], references: [id])
+  productId          Int?
+  productRef         Product? @relation("ProductPromotion", fields: [productId], references: [id])
+
+  @@index([type])
+  @@index([categoryId])
+  @@index([productId])
 }
 
 // 7. AI Output Storage (Vendor Analytics Dashboard)
