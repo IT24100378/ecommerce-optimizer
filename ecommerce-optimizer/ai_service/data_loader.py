@@ -1,6 +1,7 @@
 import pandas as pd
 import xgboost as xgb
-from sklearn.metrics import mean_absolute_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+import numpy as np
 import json # <-- Added to save the ledger
 
 def main():
@@ -71,8 +72,27 @@ def main():
 
     print("\n--- 7. The Ultimate Test ---")
     predictions = model.predict(X_test)
+
+    y_true = y_test.to_numpy()
+    y_pred = predictions
+
+    me = np.mean(y_pred - y_true)
     mae = mean_absolute_error(y_test, predictions)
+    rmse = np.sqrt(mean_squared_error(y_test, predictions))
+    r2 = r2_score(y_test, predictions)
+
+    # MAPE is undefined when true values are zero, so we evaluate only non-zero targets.
+    nonzero_mask = y_true != 0
+    if np.any(nonzero_mask):
+        mape = np.mean(np.abs((y_true[nonzero_mask] - y_pred[nonzero_mask]) / y_true[nonzero_mask])) * 100
+    else:
+        mape = float("nan")
+
+    print(f"Mean Error (ME): {me:.2f} units")
     print(f"Mean Absolute Error (MAE): {mae:.2f} units")
+    print(f"Root Mean Squared Error (RMSE): {rmse:.2f} units")
+    print(f"R-squared (R2): {r2:.4f}")
+    print(f"Mean Absolute Percentage Error (MAPE): {mape:.2f}%")
 
     print("\n--- 8. Freezing the AI's Memory ---")
     model.save_model("xgboost_sales_model.json")
