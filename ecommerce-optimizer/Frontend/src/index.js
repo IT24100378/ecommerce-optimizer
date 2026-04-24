@@ -11,6 +11,7 @@ root.render(
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<StoreFront />} />
+        <Route path="/products/:productId" element={<StoreFront />} />
         <Route path="/admin/*" element={<App />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

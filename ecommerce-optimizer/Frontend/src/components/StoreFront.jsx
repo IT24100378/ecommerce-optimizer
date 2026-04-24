@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import axios from 'axios';
+import { useNavigate, useParams } from 'react-router-dom';
 import ProductPage from './ProductPage';
 
 const API = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
@@ -1301,6 +1302,9 @@ function Footer() {
 
 // ─── Main StoreFront ──────────────────────────────────────────────────────────
 export default function StoreFront() {
+  const navigate = useNavigate();
+  const { productId } = useParams();
+
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1316,6 +1320,8 @@ export default function StoreFront() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [stockNotice, setStockNotice] = useState('');
   const [selectedProduct, setSelectedProduct] = useState(null);
+  const [selectedProductLoading, setSelectedProductLoading] = useState(false);
+  const [selectedProductError, setSelectedProductError] = useState('');
   const [activePromotions, setActivePromotions] = useState([]);
   const [catalogCategories, setCatalogCategories] = useState([]);
 
@@ -1479,6 +1485,70 @@ export default function StoreFront() {
     }
   }, []);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    const resolveSelectedProduct = async () => {
+      if (!productId) {
+        setSelectedProduct(null);
+        setSelectedProductLoading(false);
+        return;
+      }
+
+      const parsedProductId = Number.parseInt(productId, 10);
+      if (Number.isNaN(parsedProductId) || parsedProductId <= 0) {
+        if (!isMounted) return;
+        setSelectedProduct(null);
+        setSelectedProductLoading(false);
+        setSelectedProductError('Invalid product URL.');
+        return;
+      }
+
+      if (!isMounted) return;
+      setSelectedProductLoading(true);
+      setSelectedProductError('');
+
+      const productFromCatalog = products.find((p) => p.id === parsedProductId);
+      if (productFromCatalog) {
+        if (!isMounted) return;
+        setSelectedProduct(productFromCatalog);
+        setSelectedProductLoading(false);
+        return;
+      }
+
+      try {
+        const { data } = await axios.get(`${API}/api/products/${parsedProductId}`);
+        if (!isMounted) return;
+        setSelectedProduct(data);
+      } catch {
+        if (!isMounted) return;
+        setSelectedProduct(null);
+        setSelectedProductError('Product not found or unavailable.');
+      } finally {
+        if (isMounted) setSelectedProductLoading(false);
+      }
+    };
+
+    // Keep selected product synchronized with URL for deep-linking and refresh safety.
+    resolveSelectedProduct();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [productId, products]);
+
+  const handleViewProduct = useCallback((product) => {
+    setSelectedProduct(product);
+    setSelectedProductError('');
+    navigate(`/products/${product.id}`);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [navigate]);
+
+  const handleBackToCatalog = useCallback(() => {
+    setSelectedProductError('');
+    navigate('/');
+  }, [navigate]);
+
   return (
     <div className="min-h-screen bg-gray-950 text-white">
       <Navbar
@@ -1499,13 +1569,17 @@ export default function StoreFront() {
         {/* Push content below fixed navbar */}
         <div className="h-[88px]"/>
 
-        {selectedProduct ? (
+        {selectedProductLoading ? (
+          <div className="w-full px-4 sm:px-6 py-20 flex items-center justify-center">
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-cyan-500" />
+          </div>
+        ) : selectedProduct ? (
           <ProductPage
             product={selectedProduct}
             user={currentUser}
             onAddToCart={handleAdd}
             added={recentlyAdded.has(selectedProduct.id)}
-            onBack={() => setSelectedProduct(null)}
+            onBack={handleBackToCatalog}
             onRequireAuth={openAuth}
           />
         ) : (
@@ -1522,6 +1596,12 @@ export default function StoreFront() {
               <HeroBanner promotions={activePromotions} />
             </div>
 
+              {selectedProductError && (
+                <div className="bg-red-900/30 border border-red-500/50 text-red-300 px-6 py-4 rounded-2xl mb-8 text-center">
+                  {selectedProductError}
+                </div>
+              )}
+
             <div
               className={`transition-all duration-500 ease-out ${
                 isAllCategoryView && exclusiveOfferProducts.length > 0
@@ -1536,7 +1616,7 @@ export default function StoreFront() {
                       title="Exclusive Offer"
                       products={exclusiveOfferProducts}
                       onAdd={handleAdd}
-                      onView={setSelectedProduct}
+                      onView={handleViewProduct}
                       recentlyAdded={recentlyAdded}
                     />
                   </div>
@@ -1613,7 +1693,7 @@ export default function StoreFront() {
                       title={row.title}
                       products={row.products}
                       onAdd={handleAdd}
-                      onView={setSelectedProduct}
+                      onView={handleViewProduct}
                       recentlyAdded={recentlyAdded}
                     />
                   ))}
@@ -1627,7 +1707,7 @@ export default function StoreFront() {
                       key={product.id}
                       product={product}
                       onAdd={handleAdd}
-                      onView={setSelectedProduct}
+                      onView={handleViewProduct}
                       added={recentlyAdded.has(product.id)}
                     />
                   ))}
