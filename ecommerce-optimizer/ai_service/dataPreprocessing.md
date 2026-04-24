@@ -91,4 +91,4 @@ Our preprocessing pipeline follows a systematic approach with the following key 
 - **XGBoost compatibility**: "Preprocessing ensures all features are numeric and properly scaled for tree-based algorithms."
 - **Feature consistency**: "Save feature order to JSON for deployment alignment between training and inference."
 
-Remember to emphasize how each preprocessing step directly contributes to the model's ability to learn meaningful sales patterns from historical e-commerce data.
+Remember to emphasize how each preprocessing steps directly contributes to the model's ability to learn meaningful sales patterns from historical e-commerce data.
