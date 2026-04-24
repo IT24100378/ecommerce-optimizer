@@ -3,7 +3,7 @@ import axios from 'axios';
 
 const API = 'http://localhost:5000';
 
-const ROLES = ['CUSTOMER', 'VENDOR', 'ADMIN'];
+const ROLES = ['CUSTOMER', 'ADMIN'];
 
 const ROLE_COLORS = {
   ADMIN: 'bg-red-100 text-red-700',
@@ -152,7 +152,11 @@ export default function UserDashboard() {
                   <td className="px-4 py-3 flex gap-2">
                     <button onClick={() => { setViewUser(user); fetchUserDetails(user.id); }}
                       className="text-green-600 hover:text-green-800 text-xs font-medium transition-colors duration-150">History</button>
-                    <button onClick={() => { setEditUser(user); setEditForm({ name: user.name, email: user.email, role: user.role, address: user.address || '', preferences: user.preferences || '' }); }}
+                    <button onClick={() => {
+                      const safeRole = ROLES.includes(user.role) ? user.role : 'CUSTOMER';
+                      setEditUser(user);
+                      setEditForm({ name: user.name, email: user.email, role: safeRole, address: user.address || '', preferences: user.preferences || '' });
+                    }}
                       className="text-indigo-600 hover:text-indigo-800 text-xs font-medium transition-colors duration-150">Edit</button>
                     <button onClick={() => setDeleteId(user.id)}
                       className="text-red-500 hover:text-red-700 text-xs font-medium transition-colors duration-150">Delete</button>
