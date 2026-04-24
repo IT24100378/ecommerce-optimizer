@@ -162,10 +162,10 @@ export default function InventoryDashboard() {
                     </td>
                     <td className="px-4 py-3 text-gray-400 text-xs">{new Date(record.lastUpdated).toLocaleDateString()}</td>
                     <td className="px-4 py-3 flex gap-2">
-                      <button onClick={() => { setEditRecord(record); setEditForm({ stockLevel: record.stockLevel, lowStockThreshold: record.lowStockThreshold }); }}
-                        className="text-indigo-600 hover:text-indigo-800 text-xs font-medium transition-colors duration-150">Edit</button>
                       <button onClick={() => setDeleteId(record.id)}
                         className="text-red-500 hover:text-red-700 text-xs font-medium transition-colors duration-150">Delete</button>
+                      <button onClick={() => { setEditRecord(record); setEditForm({ stockLevel: record.stockLevel, lowStockThreshold: record.lowStockThreshold }); }}
+                        className="text-indigo-600 hover:text-indigo-800 text-xs font-medium transition-colors duration-150">Update</button>
                     </td>
                   </tr>
                 );
@@ -199,9 +199,9 @@ export default function InventoryDashboard() {
         </Modal>
       )}
 
-      {/* Edit Modal */}
+      {/* Update Modal */}
       {editRecord && (
-        <Modal title={`Edit Inventory #${editRecord.id}`} onClose={() => setEditRecord(null)}>
+        <Modal title={`Update Inventory #${editRecord.id}`} onClose={() => setEditRecord(null)}>
           <form onSubmit={handleEdit} className="space-y-4">
             {[['stockLevel', 'Stock Level'], ['lowStockThreshold', 'Low Stock Threshold']].map(([f, l]) => (
               <div key={f}>

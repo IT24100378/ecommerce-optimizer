@@ -43,7 +43,7 @@ router.get('/:id', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, 
     }
 });
 
-// POST / - add inventory record
+// POST / - add inventory record (create only)
 router.post('/', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, res) => {
     const prisma = req.app.locals.prisma;
     const { productId, stockLevel, lowStockThreshold } = req.body;
@@ -70,27 +70,25 @@ router.post('/', authenticateJwt, requireRole('ADMIN', 'VENDOR'), async (req, re
                 throw err;
             }
 
-            const upserted = await tx.inventory.upsert({
-                where: { productId: parsedProductId },
-                create: {
+            const created = await tx.inventory.create({
+                data: {
                     productId: parsedProductId,
-                    stockLevel: parsedStockLevel,
-                    lowStockThreshold: parsedLowStockThreshold,
-                },
-                update: {
                     stockLevel: parsedStockLevel,
                     lowStockThreshold: parsedLowStockThreshold,
                 },
                 include: { product: true },
             });
 
-            await syncProductStockMirror(tx, parsedProductId, upserted.stockLevel);
-            return upserted;
+            await syncProductStockMirror(tx, parsedProductId, created.stockLevel);
+            return created;
         });
         res.status(201).json(record);
     } catch (err) {
         if (err.code === 'PRODUCT_NOT_FOUND') {
             return res.status(404).json({ error: 'Product not found' });
+        }
+        if (err.code === 'P2002') {
+            return res.status(409).json({ error: 'Inventory record already exists for this product. Use Update instead.' });
         }
         return serverError(res, err);
     }
