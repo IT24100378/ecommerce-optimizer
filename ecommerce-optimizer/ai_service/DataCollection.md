@@ -27,30 +27,43 @@ Because of this mismatch, model behavior became less reliable for our use case. 
 ### Techniques used in synthetic data generation
 
 1. **Domain-aligned product catalog**
-   - Built a fixed catalog with our real product names and realistic base prices.
-   - Assigned a demand "weight" per product to control expected sales volume.
+   - Built a fixed catalog with exact product names used by the application and realistic base prices.
+   - Kept sensitive product-key formatting unchanged (including required trailing spaces in specific names).
 
 2. **Long chronological timeline**
    - Generated data for ~450 days (from an earlier start date up to yesterday).
    - This supports lag features and rolling windows needed for forecasting.
 
-3. **Probabilistic demand simulation**
-   - Used a Poisson distribution (`np.random.poisson`) for daily product demand.
-   - This creates natural variability instead of constant sales.
+3. **Computed demand lambda (core realism engine)**
+   - Daily demand is generated using `np.random.poisson(lambda)`.
+   - `lambda` is computed from multiple bounded factors instead of using raw weight alone.
 
-4. **Weekend/weekday behavior modeling**
-   - Applied a weekend multiplier (higher demand on weekends) to simulate real seasonality.
+4. **Product-aware popularity calibration**
+   - Added `product_popularity` multipliers per SKU to reflect medium/small-vendor sales reality.
+   - Popular consumer items are set higher than ultra-premium niche products.
 
-5. **Price-aware quantity behavior**
-   - For lower-priced products, occasionally generated multi-quantity orders (2 to 4 units).
-   - This introduces realistic basket-size variation.
+5. **Price elasticity + calendar seasonality**
+   - Used smooth price elasticity (continuous, clamped) so demand changes gradually with price.
+   - Added both day-of-week and month factors to model weekly and seasonal behavior.
 
-6. **Randomized intraday order timestamps**
+6. **Controlled event and trend effects**
+   - Added rare small event boosts to simulate occasional campaigns without creating unrealistic spikes.
+   - Added a mild long-horizon trend so demand can evolve gradually over time.
+
+7. **Safety constraints for stable training data**
+   - Applied a global demand scale and hard lambda bounds (floor + cap) to avoid extreme outliers.
+   - Kept realistic low-frequency multi-quantity behavior for lower-priced items.
+
+8. **Randomized intraday timestamps + final shuffle**
    - Added random hour/minute per order to avoid uniform timestamps.
+   - Shuffled records before saving to `merged_sales_data.csv` to prevent accidental order artifacts.
 
-7. **Final shuffling before saving**
-   - Shuffled records before saving to `merged_sales_data.csv`.
-   - This prevents accidental ordered artifacts in raw input files.
+### Current calibration profile (latest update)
+
+- **Target profile:** Medium/small vendor realism.
+- **High sellers (relative):** `Sony WF-1000XM6`, `MacBook Neo`, `Galaxy S26 Ultra`, `BRAVIA 3 II 65`.
+- **Mid sellers (relative):** `Sony WH-1000XM6`, `MacBook Air 15 Inch`, `Galaxy Z Fold7`, `iMac`.
+- **Lower sellers (relative):** premium TVs/cameras like `BRAVIA XR 83`, `Alpha 1`, `Cinema Line FX6 `.
 
 ---
 
@@ -93,10 +106,11 @@ This design ensures the training pipeline starts with a known, validated source 
 ## Important Viva Points (What to Explain Clearly)
 
 - **Why synthetic data was needed:** Public Kaggle data did not align with our schema, product catalog, and forecasting context.
-- **How realism was introduced:** Poisson demand, weekend uplift, product-specific demand weights, and price-aware quantity logic.
+- **How realism was introduced:** Computed lambda with product popularity, smooth price elasticity, day/week/month seasonality, rare event boosts, and mild trend.
+- **How we prevented unrealistic outputs:** Global demand scaling, bounded multipliers, and lambda cap/floor controls.
 - **How we ensured pipeline compatibility:** Generated fields exactly match what `data_loader.py` expects.
-- **How data collection affects later stages:** Clean data directly improves preprocessing, feature engineering, tuning, and evaluation.
-- **Risk awareness:** Synthetic data may not capture every real-world event (supply shocks, external promotions), so periodic retraining with production data is recommended.
+- **How data collection affects later stages:** Better data quality directly improves preprocessing, feature engineering, tuning, and evaluation.
+- **Risk awareness:** Synthetic data still cannot capture all external shocks, so periodic retraining with real production data is recommended.
 
 ---
 

@@ -31,53 +31,55 @@ def generate_ecommerce_data():
         'BRAVIA 3 II 65': {"price": 899, "weight": 16},
     }
 
-    # Product-level popularity separates demand for similarly priced items.
+    # Product-level popularity calibrated for a medium/small vendor profile.
     product_popularity = {
-        'iPhone 17 Pro Max': 1.18,
-        'MacBook Pro 16 Inch': 0.72,
-        'MacBook Neo': 1.25,
-        'iMac': 0.82,
-        'MacBook Air 15 Inch': 1.06,
-        'Sony WH-1000XM6': 0.88,
-        'Sony WF-1000XM6': 1.22,
-        'BRAVIA XR 65': 0.74,
-        'BRAVIA XR 83': 0.56,
-        'BRAVIA XR 77': 0.61,
-        'BRAVIA XR8B 65': 1.08,
-        'Alpha 7R V ': 0.67,
-        'Alpha 7 V': 0.73,
-        'Cinema Line FX6 ': 0.34,
-        'Alpha 1': 0.43,
-        'Samsung 85" Neo QLED QN80H': 0.64,
-        'Galaxy Z Fold7': 0.79,
-        'Galaxy S26 Ultra': 1.10,
-        'Galaxy S26+': 1.05,
-        'BRAVIA 3 II 65': 1.15,
+        'iPhone 17 Pro Max': 0.95,
+        'MacBook Pro 16 Inch': 0.62,
+        'MacBook Neo': 1.00,
+        'iMac': 0.70,
+        'MacBook Air 15 Inch': 0.82,
+        'Sony WH-1000XM6': 0.72,
+        'Sony WF-1000XM6': 1.05,
+        'BRAVIA XR 65': 0.56,
+        'BRAVIA XR 83': 0.40,
+        'BRAVIA XR 77': 0.46,
+        'BRAVIA XR8B 65': 0.78,
+        'Alpha 7R V ': 0.48,
+        'Alpha 7 V': 0.56,
+        'Cinema Line FX6 ': 0.28,
+        'Alpha 1': 0.34,
+        'Samsung 85" Neo QLED QN80H': 0.50,
+        'Galaxy Z Fold7': 0.62,
+        'Galaxy S26 Ultra': 0.90,
+        'Galaxy S26+': 0.86,
+        'BRAVIA 3 II 65': 0.92,
     }
 
-    dow_factor = {0: 0.95, 1: 0.98, 2: 1.00, 3: 1.03, 4: 1.08, 5: 1.25, 6: 1.18}
-    month_factor = {1: 0.92, 2: 0.95, 3: 1.00, 4: 1.03, 5: 1.05, 6: 1.02, 7: 0.99, 8: 1.01, 9: 1.04, 10: 1.08, 11: 1.18, 12: 1.22}
+    # Modest weekly and seasonal variance to avoid unrealistic spikes.
+    dow_factor = {0: 0.95, 1: 0.98, 2: 1.00, 3: 1.01, 4: 1.04, 5: 1.10, 6: 1.07}
+    month_factor = {1: 0.96, 2: 0.98, 3: 1.00, 4: 1.01, 5: 1.01, 6: 1.00, 7: 0.99, 8: 1.00, 9: 1.01, 10: 1.03, 11: 1.06, 12: 1.08}
 
     def computed_lambda(product, base_weight, price, current_date, start_date):
         # Smooth price elasticity avoids abrupt demand jumps at hard tier boundaries.
         reference_price = 999.0
-        elasticity = 0.30
+        elasticity = 0.22
         price_ratio = reference_price / max(float(price), 1.0)
-        price_factor = float(np.clip(price_ratio ** elasticity, 0.55, 1.55))
+        price_factor = float(np.clip(price_ratio ** elasticity, 0.72, 1.25))
 
         popularity_factor = product_popularity.get(product, 1.0)
         weekday_factor = dow_factor[current_date.weekday()]
         seasonality_factor = month_factor[current_date.month]
 
-        # Small event probability with capped uplift simulates promotions without destabilizing training.
+        # Keep rare promotion shocks small so forecasts remain stable and realistic.
         event_boost = 1.0
-        if random.random() < 0.015:
-            event_boost = random.uniform(1.10, 1.30)
+        if random.random() < 0.006:
+            event_boost = random.uniform(1.04, 1.12)
 
         total_days = max((end_date - start_date).days, 1)
         progress = (current_date - start_date).days / total_days
-        trend_factor = 1.0 + (0.08 * progress)
+        trend_factor = 1.0 + (0.02 * progress)
 
+        demand_scale = 0.55
         lam = (
             base_weight
             * popularity_factor
@@ -86,8 +88,9 @@ def generate_ecommerce_data():
             * seasonality_factor
             * event_boost
             * trend_factor
+            * demand_scale
         )
-        return max(0.2, min(120.0, lam))
+        return max(0.2, min(48.0, lam))
 
     # Set the timeline: Jan 1, 2025 to Yesterday
     end_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
