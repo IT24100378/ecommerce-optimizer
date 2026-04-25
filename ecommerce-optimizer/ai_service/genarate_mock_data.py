@@ -31,7 +31,65 @@ def generate_ecommerce_data():
         'BRAVIA 3 II 65': {"price": 899, "weight": 16},
     }
 
-    # Set the timeline: Jan 1, 2025 to Yesterday (March 2026)
+    # Product-level popularity separates demand for similarly priced items.
+    product_popularity = {
+        'iPhone 17 Pro Max': 1.18,
+        'MacBook Pro 16 Inch': 0.72,
+        'MacBook Neo': 1.25,
+        'iMac': 0.82,
+        'MacBook Air 15 Inch': 1.06,
+        'Sony WH-1000XM6': 0.88,
+        'Sony WF-1000XM6': 1.22,
+        'BRAVIA XR 65': 0.74,
+        'BRAVIA XR 83': 0.56,
+        'BRAVIA XR 77': 0.61,
+        'BRAVIA XR8B 65': 1.08,
+        'Alpha 7R V ': 0.67,
+        'Alpha 7 V': 0.73,
+        'Cinema Line FX6 ': 0.34,
+        'Alpha 1': 0.43,
+        'Samsung 85" Neo QLED QN80H': 0.64,
+        'Galaxy Z Fold7': 0.79,
+        'Galaxy S26 Ultra': 1.10,
+        'Galaxy S26+': 1.05,
+        'BRAVIA 3 II 65': 1.15,
+    }
+
+    dow_factor = {0: 0.95, 1: 0.98, 2: 1.00, 3: 1.03, 4: 1.08, 5: 1.25, 6: 1.18}
+    month_factor = {1: 0.92, 2: 0.95, 3: 1.00, 4: 1.03, 5: 1.05, 6: 1.02, 7: 0.99, 8: 1.01, 9: 1.04, 10: 1.08, 11: 1.18, 12: 1.22}
+
+    def computed_lambda(product, base_weight, price, current_date, start_date):
+        # Smooth price elasticity avoids abrupt demand jumps at hard tier boundaries.
+        reference_price = 999.0
+        elasticity = 0.30
+        price_ratio = reference_price / max(float(price), 1.0)
+        price_factor = float(np.clip(price_ratio ** elasticity, 0.55, 1.55))
+
+        popularity_factor = product_popularity.get(product, 1.0)
+        weekday_factor = dow_factor[current_date.weekday()]
+        seasonality_factor = month_factor[current_date.month]
+
+        # Small event probability with capped uplift simulates promotions without destabilizing training.
+        event_boost = 1.0
+        if random.random() < 0.015:
+            event_boost = random.uniform(1.10, 1.30)
+
+        total_days = max((end_date - start_date).days, 1)
+        progress = (current_date - start_date).days / total_days
+        trend_factor = 1.0 + (0.08 * progress)
+
+        lam = (
+            base_weight
+            * popularity_factor
+            * price_factor
+            * weekday_factor
+            * seasonality_factor
+            * event_boost
+            * trend_factor
+        )
+        return max(0.2, min(120.0, lam))
+
+    # Set the timeline: Jan 1, 2025 to Yesterday
     end_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
     start_date = end_date - timedelta(days=450)
 
@@ -42,12 +100,9 @@ def generate_ecommerce_data():
     current_date = start_date
 
     while current_date <= end_date:
-        is_weekend = current_date.weekday() >= 5
-        daily_multiplier = 1.4 if is_weekend else 1.0
-
         for product, info in catalog.items():
-            base_volume = np.random.poisson(info["weight"])
-            actual_volume = int(base_volume * daily_multiplier)
+            lam = computed_lambda(product, info["weight"], info["price"], current_date, start_date)
+            actual_volume = np.random.poisson(lam)
 
             for _ in range(actual_volume):
                 order_time = current_date + timedelta(hours=random.randint(0, 23), minutes=random.randint(0, 59))
