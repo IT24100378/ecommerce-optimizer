@@ -8,7 +8,7 @@ import UserDashboard from './components/UserDashboard';
 import ForecastDashboard from './components/ForecastDashboard';
 import axios from 'axios';
 
-const API = 'http://localhost:5000';
+const API = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: '📊' },

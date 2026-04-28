@@ -125,3 +125,8 @@ def predict_sales(request: SalesPredictionRequest, x_api_key: Optional[str] = He
     except Exception as e:
         print(f"INFERENCE ERROR: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok", "service": "ai", "model_loaded": True}

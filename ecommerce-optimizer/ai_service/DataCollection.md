@@ -27,7 +27,7 @@ Because of this mismatch, model behavior became less reliable for our use case. 
 ### Techniques used in synthetic data generation
 
 1. **Domain-aligned product catalog**
-   - Built a fixed catalog with exact product names used by the application and realistic base prices.
+   - Built a fixed catalog with exact product names used by the adpplication and realistic base prices.
    - Kept sensitive product-key formatting unchanged (including required trailing spaces in specific names).
 
 2. **Long chronological timeline**

@@ -1,0 +1,48 @@
+services:
+  - type: web
+    name: ecommerce-optimizer-backend
+    env: node
+    rootDir: backend
+    buildCommand: npm install && npm run render-build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ecommerce-optimizer-db
+          property: connectionString
+      - key: CORS_ORIGIN
+        value: '*'
+      - key: AI_SERVICE_URL
+        value: https://ecommerce-optimizer-ai.onrender.com/predict
+      - key: AI_AUTOSTART_ENABLED
+        value: 'false'
+
+  - type: web
+    name: ecommerce-optimizer-ai
+    env: python
+    rootDir: ai_service
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ALLOW_UNSAFE_NO_API_KEY
+        value: 'false'
+
+  - type: static
+    name: ecommerce-optimizer-frontend
+    rootDir: Frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: build
+    envVars:
+      - key: REACT_APP_BACKEND_URL
+        value: https://ecommerce-optimizer-backend.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+databases:
+  - name: ecommerce-optimizer-db
+    databaseName: ecommerce_optimizer
+    user: ecommerce_optimizer_user

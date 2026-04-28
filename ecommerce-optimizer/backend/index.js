@@ -14,11 +14,20 @@ const prisma = new PrismaClient();
 let aiServiceProcess = null;
 
 const app = express();
+app.set('trust proxy', 1);
 
 const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000')
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
+
+function isLocalAiHost(host) {
+    const normalizedHost = String(host || '').toLowerCase();
+    return normalizedHost === 'localhost'
+        || normalizedHost === '127.0.0.1'
+        || normalizedHost === '::1'
+        || normalizedHost.startsWith('127.');
+}
 
 function createAuthLimiter() {
     return rateLimit({
@@ -37,7 +46,7 @@ app.use(helmet());
 app.use(express.json({ limit: '100kb' }));
 app.use(cors({
     origin(origin, callback) {
-        if (!origin || allowedOrigins.includes(origin)) {
+        if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
             return callback(null, true);
         }
         return callback(new Error('Not allowed by CORS'));
@@ -160,6 +169,11 @@ async function ensureAiServiceReady() {
         return;
     }
 
+    if (!isLocalAiHost(host)) {
+        console.log(`[ai] AI_SERVICE_URL points to an external host (${host}); skipping local auto-start.`);
+        return;
+    }
+
     const alreadyRunning = await canConnect(host, port);
     if (alreadyRunning) {
         console.log(`[ai] Existing AI service detected on ${host}:${port}.`);
@@ -256,6 +270,10 @@ app.get('/', (req, res) => {
     res.status(200).json({ status: 'ok', message: 'E-Commerce Inventory Optimizer API is running.' });
 });
 
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok', service: 'backend' });
+});
+
 // Routes
 const productRoutes = require('./routes/productRoutes');
 const orderRoutes = require('./routes/orderRoutes');
@@ -286,7 +304,7 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 });
 setupShutdownHooks(server);
 
