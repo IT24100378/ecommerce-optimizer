@@ -29,7 +29,7 @@ services:
       - key: ALLOW_UNSAFE_NO_API_KEY
         value: 'false'
 
-  - type: static
+  - type: web
     name: ecommerce-optimizer-frontend
     rootDir: Frontend
     buildCommand: npm install && npm run build
