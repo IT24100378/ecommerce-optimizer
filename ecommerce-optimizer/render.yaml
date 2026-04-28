@@ -1,7 +1,7 @@
 services:
   - type: web
     name: ecommerce-optimizer-backend
-    env: node
+    runtime: node
     rootDir: backend
     buildCommand: npm install && npm run render-build
     startCommand: npm start
@@ -14,14 +14,19 @@ services:
           property: connectionString
       - key: CORS_ORIGIN
         value: '*'
-      - key: AI_SERVICE_URL
-        value: https://ecommerce-optimizer-ai.onrender.com/predict
+      # Dynamically inject the internal host:port of the AI service
+      - key: AI_SERVICE_HOST
+        fromService:
+          type: pserv
+          name: ecommerce-optimizer-ai
+          property: hostport
       - key: AI_AUTOSTART_ENABLED
         value: 'false'
 
-  - type: web
+  # Converted to a Private Service (pserv) for internal networking
+  - type: pserv
     name: ecommerce-optimizer-ai
-    env: python
+    runtime: python
     rootDir: ai_service
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
@@ -29,14 +34,17 @@ services:
       - key: ALLOW_UNSAFE_NO_API_KEY
         value: 'false'
 
-  - type: static
+  # Converted to type: web with runtime: static
+  - type: web
     name: ecommerce-optimizer-frontend
+    runtime: static
     rootDir: Frontend
     buildCommand: npm install && npm run build
     staticPublishPath: build
     envVars:
+      # Update this value with your exact Render URL (including the hash) or a custom domain
       - key: REACT_APP_BACKEND_URL
-        value: https://ecommerce-optimizer-backend.onrender.com
+        value: https://ecommerce-optimizer-backend-YOUR_HASH.onrender.com
     routes:
       - type: rewrite
         source: /*
@@ -46,3 +54,5 @@ databases:
   - name: ecommerce-optimizer-db
     databaseName: ecommerce_optimizer
     user: ecommerce_optimizer_user
+    # Blocks public internet access; allows only internal Render network
+    ipAllowList: []
